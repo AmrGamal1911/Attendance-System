@@ -1145,132 +1145,81 @@
             },
 
             exportAttendanceReport: function() {
-                const roster = app.currentSession.roster || [];
-                const attendees = app.currentSession.attendees || [];
-                const currentWeek = app.currentSession.week;
+                const roster = this.currentSession.roster || [];
+                const attendees = this.currentSession.attendees || [];
+                const currentWeek = this.currentSession.week;
+                const subjectName = this.currentSession.subject;
                 
-                let mergedData = [];
-                const weekColumns = new Set();
-                
-                if (app.previousAttendanceData && app.previousAttendanceData.length > 0) {
-                    const previousDataMap = {};
-                    app.previousAttendanceData.forEach(row => {
-                        previousDataMap[row['Student ID']] = row;
-                        Object.keys(row).forEach(key => {
-                            if (key.startsWith('Week ') && !key.startsWith('Timestamp Week ')) {
-                                weekColumns.add(key);
-                            }
-                        });
-                    });
+                // Prepare the data structure
+                let reportData = roster.map(student => {
+                    const attended = attendees.some(a => a.id === student.id);
+                    const record = {
+                        'Student ID': student.id,
+                        'Name': student.name,
+                        'Section': student.section || '',
+                        [`Week ${currentWeek}`]: attended ? 1 : 0,
+                        [`Timestamp Week ${currentWeek}`]: attended ? 
+                            new Date(attendees.find(a => a.id === student.id).timestamp).toLocaleString() : 'N/A'
+                    };
                     
-                    mergedData = roster.map(student => {
-                        const previousRecord = previousDataMap[student.id] || {};
-                        const result = {
-                            'Student ID': student.id,
-                            'Name': student.name,
-                            'Section': student.section || ''
-                        };
-                        
-                        weekColumns.forEach(week => {
-                            result[week] = previousRecord[week] || 0;
-                            result[`Timestamp ${week}`] = previousRecord[`Timestamp ${week}`] || 'N/A';
-                        });
-                        
-                        const currentWeekCol = `Week ${currentWeek}`;
-                        const attended = attendees.some(a => a.id === student.id);
-                        result[currentWeekCol] = attended ? 1 : 0;
-                        result[`Timestamp ${currentWeekCol}`] = attended ? 
-                            new Date(attendees.find(a => a.id === student.id).timestamp).toLocaleString() : 'N/A';
-                        
-                        return result;
-                    });
-                } else {
-                    mergedData = roster.map(student => {
-                        const attended = attendees.some(a => a.id === student.id);
-                        const currentWeekCol = `Week ${currentWeek}`;
-                        return {
-                            'Student ID': student.id,
-                            'Name': student.name,
-                            'Section': student.section || '',
-                            [currentWeekCol]: attended ? 1 : 0,
-                            [`Timestamp ${currentWeekCol}`]: attended ? 
-                                new Date(attendees.find(a => a.id === student.id).timestamp).toLocaleString() : 'N/A'
-                        };
-                    });
-                }
-                
-                mergedData.forEach(student => {
-                    let total = 0;
-                    Object.keys(student).forEach(key => {
-                        if (key.startsWith('Week ') && !key.startsWith('Timestamp Week ') && typeof student[key] === 'number') {
-                            total += student[key];
-                        }
-                    });
-                    student['Total'] = total;
+                    return record;
                 });
                 
-                const sortedData = mergedData.map(student => {
-                    const ordered = {};
-                    ordered['Student ID'] = student['Student ID'];
-                    ordered['Name'] = student['Name'];
-                    ordered['Section'] = student['Section'];
-                    
-                    const weekKeys = Object.keys(student)
-                        .filter(key => key.startsWith('Week ') && !key.startsWith('Timestamp Week '))
-                        .sort((a, b) => parseInt(a.replace('Week ', '')) - parseInt(b.replace('Week ', '')));
-                    
-                    weekKeys.forEach(key => {
-                        ordered[key] = student[key];
-                        ordered[`Timestamp ${key}`] = student[`Timestamp ${key}`];
-                    });
-                    
-                    ordered['Total'] = student['Total'];
-                    return ordered;
-                });
-                
-                const ws = XLSX.utils.json_to_sheet(sortedData);
+                // Create workbook and worksheet
+                const ws = XLSX.utils.json_to_sheet(reportData);
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, "Attendance");
                 
+                // Generate filename
                 const today = new Date();
                 const dateStr = today.toISOString().split('T')[0];
+                let fileName;
                 
-                // Find all week numbers to create the filename
-                const weekNumbers = [];
-                if (sortedData.length > 0) {
-                    Object.keys(sortedData[0]).forEach(key => {
+                if (this.previousAttendanceData && this.previousAttendanceData.length > 0) {
+                    // Find all week numbers from previous data
+                    const weekNumbers = [];
+                    Object.keys(this.previousAttendanceData[0]).forEach(key => {
                         if (key.startsWith('Week ') && !key.startsWith('Timestamp Week ')) {
                             weekNumbers.push(parseInt(key.replace('Week ', '')));
                         }
                     });
+                    
+                    if (weekNumbers.length > 0) {
+                        const minWeek = Math.min(...weekNumbers);
+                        const maxWeek = Math.max(...weekNumbers);
+                        fileName = `${subjectName} Attendance from Week ${minWeek} to Week ${currentWeek} ${dateStr}.xlsx`;
+                    } else {
+                        fileName = `${subjectName} Attendance for Week ${currentWeek} ${dateStr}.xlsx`;
+                    }
+                } else {
+                    fileName = `${subjectName} Attendance for Week ${currentWeek} ${dateStr}.xlsx`;
                 }
                 
-                const minWeek = weekNumbers.length > 0 ? Math.min(...weekNumbers) : currentWeek;
-                const maxWeek = weekNumbers.length > 0 ? Math.max(...weekNumbers) : currentWeek;
+                // Clean filename
+                fileName = fileName.replace(/[^a-zA-Z0-9\s\.\-_]/g, '').replace(/\s+/g, ' ');
                 
-                const fileName = `${app.currentSession.subject.replace(/[^a-zA-Z0-9]/g, '_')}_Attendance_from_Week_${minWeek}_to_Week_${maxWeek}_${dateStr}.xlsx`;
-                
+                // Save the file
                 XLSX.writeFile(wb, fileName);
             },
 
             endSessionAutomatically: async function() {
                 try {
-                    await window.dbSet(window.dbRef(window.database, `sessions/${app.currentSession.id}/active`), false);
+                    await window.dbSet(window.dbRef(window.database, `sessions/${this.currentSession.id}/active`), false);
                     
                     const sessionStatus = document.getElementById('sessionStatus');
                     sessionStatus.className = 'session-status session-inactive';
                     sessionStatus.innerHTML = '<i class="fas fa-users"></i> <span>Max students reached</span>';
                     
-                    app.showMessage('Session automatically ended - max attendance reached. Report sent to your email.', 'success');
-                    app.updateSyncStatus('offline');
+                    this.showMessage('Session automatically ended - max attendance reached.', 'success');
+                    this.updateSyncStatus('offline');
                     
-                    if (app.attendeesRef) {
-                        window.dbOff(app.attendeesRef);
+                    if (this.attendeesRef) {
+                        window.dbOff(this.attendeesRef);
                     }
                     
-                    app.currentSession.active = false;
-                    app.saveSessionToLocal(app.currentSession);
-                    app.updateSessionHistory(app.currentSession);
+                    this.currentSession.active = false;
+                    this.saveSessionToLocal(this.currentSession);
+                    this.updateSessionHistory(this.currentSession);
                     
                 } catch (error) {
                     console.error('Error auto-ending session:', error);
@@ -1278,44 +1227,49 @@
             },
 
             endSession: async function() {
-                if (app.currentSession && app.sessionRef) {
-                    try {
-                        await window.dbSet(window.dbRef(window.database, `sessions/${app.currentSession.id}/active`), false);
-                        
-                        if (app.attendeesRef) {
-                            window.dbOff(app.attendeesRef);
-                        }
-                        
-                        const sessionStatus = document.getElementById('sessionStatus');
-                        sessionStatus.className = 'session-status session-inactive';
-                        sessionStatus.innerHTML = '<i class="fas fa-stop-circle"></i> <span>Session Ended</span>';
-                        
-                        app.showMessage('Session ended successfully. Attendance report has been sent to your email.', 'success');
-                        app.updateSyncStatus('offline');
-                        
-                        app.currentSession.active = false;
-                        app.saveSessionToLocal(app.currentSession);
-                        app.updateSessionHistory(app.currentSession);
-                        
-                        setTimeout(() => {
-                            document.getElementById('currentSessionCard').classList.add('hidden');
-                        }, 3000);
-                    } catch (error) {
-                        console.error('Error ending session:', error);
-                        app.showMessage('Failed to end session', 'danger');
+                if (!this.currentSession || !this.sessionRef) {
+                    this.showMessage('No active session to end', 'danger');
+                    return;
+                }
+                
+                try {
+                    await window.dbSet(window.dbRef(window.database, `sessions/${this.currentSession.id}/active`), false);
+                    
+                    if (this.attendeesRef) {
+                        window.dbOff(this.attendeesRef);
                     }
+                    
+                    const sessionStatus = document.getElementById('sessionStatus');
+                    sessionStatus.className = 'session-status session-inactive';
+                    sessionStatus.innerHTML = '<i class="fas fa-stop-circle"></i> <span>Session Ended</span>';
+                    
+                    this.showMessage('Session ended successfully.', 'success');
+                    this.updateSyncStatus('offline');
+                    
+                    this.currentSession.active = false;
+                    this.saveSessionToLocal(this.currentSession);
+                    this.updateSessionHistory(this.currentSession);
+                    
+                    // Hide the current session card after a delay
+                    setTimeout(() => {
+                        document.getElementById('currentSessionCard').classList.add('hidden');
+                    }, 3000);
+                    
+                } catch (error) {
+                    console.error('Error ending session:', error);
+                    this.showMessage('Failed to end session', 'danger');
                 }
             },
 
             displayCurrentSession: function() {
-                if (!app.currentSession) return;
+                if (!this.currentSession) return;
                 
-                document.getElementById('currentSubject').textContent = app.currentSession.subject;
-                document.getElementById('currentWeek').textContent = app.currentSession.week;
-                document.getElementById('attendedCount').textContent = app.currentSession.attendeeCount || 0;
-                document.getElementById('maxAttendeesDisplay').textContent = app.currentSession.maxAttendees;
+                document.getElementById('currentSubject').textContent = this.currentSession.subject;
+                document.getElementById('currentWeek').textContent = this.currentSession.week;
+                document.getElementById('attendedCount').textContent = this.currentSession.attendeeCount || 0;
+                document.getElementById('maxAttendeesDisplay').textContent = this.currentSession.maxAttendees;
                 
-                const formUrl = `${window.location.origin}/form.html?session=${app.currentSession.id}`;
+                const formUrl = `${window.location.origin}/form.html?session=${this.currentSession.id}`;
                 const qr = qrcode(0, 'L');
                 qr.addData(formUrl);
                 qr.make();
@@ -1394,7 +1348,7 @@
                 const modal = document.getElementById('qrModal');
                 const qrContainer = document.getElementById('fullscreenQr');
                 
-                const formUrl = `${window.location.origin}/form.html?session=${app.currentSession.id}`;
+                const formUrl = `${window.location.origin}/form.html?session=${this.currentSession.id}`;
                 const qr = qrcode(0, 'L');
                 qr.addData(formUrl);
                 qr.make();
@@ -1432,12 +1386,12 @@
             syncOfflineData: function() {
                 const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
                 Object.values(sessions).forEach(session => {
-                    if (session.offline && session.deviceId === app.deviceId) {
+                    if (session.offline && session.deviceId === this.deviceId) {
                         const sessionRef = window.dbRef(window.database, `sessions/${session.id}`);
                         window.dbSet(sessionRef, session)
                             .then(() => {
                                 session.offline = false;
-                                app.saveSessionToLocal(session);
+                                this.saveSessionToLocal(session);
                             })
                             .catch(error => {
                                 console.error('Sync failed:', error);
@@ -1455,7 +1409,7 @@
                     date: new Date().toISOString(),
                     attendees: session.attendeeCount || 0,
                     maxAttendees: session.maxAttendees,
-                    deviceId: app.deviceId
+                    deviceId: this.deviceId
                 });
                 
                 if (history.length > 10) {
@@ -1463,7 +1417,7 @@
                 }
                 
                 localStorage.setItem('sessionHistory', JSON.stringify(history));
-                app.renderSessionHistory();
+                this.renderSessionHistory();
             },
 
             updateSessionHistory: function(updatedSession) {
@@ -1474,20 +1428,20 @@
                     history[sessionIndex].attendees = updatedSession.attendeeCount || 0;
                     history[sessionIndex].active = updatedSession.active;
                     localStorage.setItem('sessionHistory', JSON.stringify(history));
-                    app.renderSessionHistory();
+                    this.renderSessionHistory();
                 }
             },
 
             loadSessionHistory: function() {
-                app.renderSessionHistory();
-                window.addEventListener('online', app.syncOfflineData);
-                app.syncOfflineData();
+                this.renderSessionHistory();
+                window.addEventListener('online', this.syncOfflineData.bind(this));
+                this.syncOfflineData();
             },
 
             renderSessionHistory: function() {
                 const historyList = document.getElementById('sessionHistoryList');
                 const history = JSON.parse(localStorage.getItem('sessionHistory') || '[]')
-                    .filter(session => session.deviceId === app.deviceId);
+                    .filter(session => session.deviceId === this.deviceId);
                 
                 if (history.length === 0) {
                     historyList.innerHTML = '<p>No previous sessions found</p>';
@@ -1537,10 +1491,10 @@
                 const formUrl = `${window.location.origin}/form.html?session=${sessionId}`;
                 navigator.clipboard.writeText(formUrl)
                     .then(() => {
-                        app.showMessage('Session link copied to clipboard!', 'success');
+                        this.showMessage('Session link copied to clipboard!', 'success');
                     })
                     .catch(err => {
-                        app.showMessage('Failed to copy link', 'danger');
+                        this.showMessage('Failed to copy link', 'danger');
                         console.error('Could not copy text: ', err);
                     });
             },
@@ -1550,13 +1504,14 @@
                 const session = sessions[sessionId];
                 
                 if (!session) {
-                    app.showMessage('Session data not found', 'danger');
+                    this.showMessage('Session data not found', 'danger');
                     return;
                 }
                 
                 const roster = session.roster || [];
                 const attendees = session.attendees || [];
                 const week = session.week;
+                const subjectName = session.subject;
                 
                 const data = roster.map(student => {
                     const attended = attendees.some(a => a.id === student.id);
@@ -1576,7 +1531,7 @@
                 
                 const today = new Date();
                 const dateStr = today.toISOString().split('T')[0];
-                const fileName = `${session.subject.replace(/[^a-zA-Z0-9]/g, '_')}_Attendance_Week_${week}_${dateStr}.xlsx`;
+                const fileName = `${subjectName} Attendance for Week ${week} ${dateStr}.xlsx`;
                 
                 XLSX.writeFile(wb, fileName);
             },
@@ -1584,23 +1539,23 @@
             initVoiceCommands: function() {
                 try {
                     if ('webkitSpeechRecognition' in window) {
-                        app.recognition = new webkitSpeechRecognition();
+                        this.recognition = new webkitSpeechRecognition();
                     } else if ('SpeechRecognition' in window) {
-                        app.recognition = new SpeechRecognition();
+                        this.recognition = new SpeechRecognition();
                     } else {
                         throw new Error('Speech recognition not supported');
                     }
                     
-                    app.recognition.continuous = false;
-                    app.recognition.interimResults = false;
-                    app.recognition.lang = 'en-US';
+                    this.recognition.continuous = false;
+                    this.recognition.interimResults = false;
+                    this.recognition.lang = 'en-US';
                     
-                    app.recognition.onresult = function(event) {
+                    this.recognition.onresult = function(event) {
                         const transcript = event.results[0][0].transcript.toLowerCase();
                         app.handleVoiceCommand(transcript);
                     };
                     
-                    app.recognition.onerror = function(event) {
+                    this.recognition.onerror = function(event) {
                         console.error('Voice recognition error', event.error);
                         if (event.error === 'not-allowed') {
                             app.showMessage('Microphone access denied. Please enable microphone permissions.', 'danger');
@@ -1625,7 +1580,7 @@
                         }
                     });
                     
-                    app.recognition.onend = function() {
+                    this.recognition.onend = function() {
                         document.getElementById('voiceBtn').innerHTML = '<i class="fas fa-microphone"></i>';
                     };
                 } catch (error) {
@@ -1635,34 +1590,34 @@
             },
 
             handleVoiceCommand: function(command) {
-                app.showMessage(`Heard: "${command}"`, 'info');
+                this.showMessage(`Heard: "${command}"`, 'info');
                 
                 if (command.includes('start session') || command.includes('begin session')) {
                     if (!document.getElementById('createSessionBtn').disabled) {
                         document.getElementById('sessionForm').dispatchEvent(new Event('submit'));
                     } else {
-                        app.showMessage('Please upload a roster first', 'warning');
+                        this.showMessage('Please upload a roster first', 'warning');
                     }
                 } else if (command.includes('end session') || command.includes('stop session')) {
                     if (document.getElementById('endSessionBtn') && !document.getElementById('endSessionBtn').disabled) {
                         document.getElementById('endSessionBtn').click();
                     } else {
-                        app.showMessage('No active session to end', 'warning');
+                        this.showMessage('No active session to end', 'warning');
                     }
                 } else if (command.includes('fullscreen') || command.includes('show qr')) {
                     if (document.getElementById('currentSessionCard') && !document.getElementById('currentSessionCard').classList.contains('hidden')) {
-                        app.openFullscreenQR();
+                        this.openFullscreenQR();
                     } else {
-                        app.showMessage('No active session to show QR code', 'warning');
+                        this.showMessage('No active session to show QR code', 'warning');
                     }
                 } else if (command.includes('copy link') || command.includes('session link')) {
                     if (document.getElementById('currentSessionCard') && !document.getElementById('currentSessionCard').classList.contains('hidden')) {
-                        app.copyToClipboard();
+                        this.copyToClipboard();
                     } else {
-                        app.showMessage('No active session to copy link', 'warning');
+                        this.showMessage('No active session to copy link', 'warning');
                     }
                 } else {
-                    app.showMessage('Command not recognized. Try "start session" or "end session"', 'warning');
+                    this.showMessage('Command not recognized. Try "start session" or "end session"', 'warning');
                 }
             }
         };
