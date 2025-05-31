@@ -1,0 +1,1195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendance System | EELU</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
+        import { getDatabase, ref, set, onValue, push, serverTimestamp, off } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
+            authDomain: "eelu-attendance.firebaseapp.com",
+            databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
+            projectId: "eelu-attendance",
+            storageBucket: "eelu-attendance.firebasestorage.app",
+            messagingSenderId: "5132239076",
+            appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
+            measurementId: "G-D2WNX8RGRL"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        window.database = getDatabase(app);
+        window.dbRef = ref;
+        window.dbSet = set;
+        window.dbOnValue = onValue;
+        window.dbPush = push;
+        window.dbServerTimestamp = serverTimestamp;
+        window.dbOff = off;
+    </script>
+    
+    <style>
+        :root {
+            --primary: #667eea;
+            --primary-dark: #5a6fd8;
+            --secondary: #764ba2;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --info: #3b82f6;
+            --dark: #1f2937;
+            --light: #f8fafc;
+            --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --gradient-light: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            --border-radius: 12px;
+            --border-radius-lg: 16px;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--light);
+            line-height: 1.6;
+            color: var(--dark);
+            overflow-x: hidden;
+            background-image: radial-gradient(circle at 10% 20%, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 90%);
+        }
+        
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+            position: relative;
+        }
+        
+        header::after {
+            content: '';
+            position: absolute;
+            bottom: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60px;
+            height: 4px;
+            background: var(--gradient);
+            border-radius: 2px;
+            animation: slideIn 0.8s ease-out;
+        }
+        
+        header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+            animation: slideDown 0.8s ease-out;
+        }
+        
+        header p {
+            font-size: 1.1rem;
+            color: #6b7280;
+            font-weight: 400;
+            animation: slideDown 0.8s ease-out 0.2s both;
+        }
+        
+        .card {
+            background: white;
+            border-radius: var(--border-radius-lg);
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            animation: slideUp 0.6s ease-out;
+        }
+        
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--gradient);
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform 0.3s ease;
+        }
+        
+        .card:hover::before {
+            transform: scaleX(1);
+        }
+        
+        .card h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--dark);
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        
+        .card h2 i {
+            color: var(--primary);
+            font-size: 1.2rem;
+        }
+        
+        .btn {
+            background: var(--gradient);
+            color: white;
+            padding: 0.875rem 1.75rem;
+            border-radius: var(--border-radius);
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .btn:disabled {
+            background: #d1d5db;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #10b981, #059669);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, #6b7280, #4b5563);
+        }
+        
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: var(--dark);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        label i {
+            color: var(--primary);
+            width: 16px;
+        }
+        
+        input {
+            width: 100%;
+            padding: 0.875rem 1rem;
+            border: 2px solid #e5e7eb;
+            border-radius: var(--border-radius);
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+        
+        input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            outline: none;
+        }
+        
+        .file-upload {
+            border: 2px dashed #d1d5db;
+            padding: 3rem 2rem;
+            text-align: center;
+            border-radius: var(--border-radius-lg);
+            margin-bottom: 1.5rem;
+            transition: all 0.3s ease;
+            background: var(--gradient-light);
+        }
+        
+        .file-upload:hover {
+            border-color: var(--primary);
+            background: rgba(102, 126, 234, 0.05);
+        }
+        
+        #fileName {
+            color: #6b7280;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+        
+        #qrcode {
+            padding: 1.5rem;
+            background: white;
+            border-radius: var(--border-radius);
+            display: inline-block;
+            border: 1px solid #f3f4f6;
+            margin: 1rem 0;
+            box-shadow: var(--shadow);
+            animation: scaleIn 0.5s ease-out;
+        }
+        
+        .session-url {
+            margin: 1.5rem 0;
+        }
+        
+        .session-url .input-group {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .session-url input {
+            flex: 1;
+        }
+        
+        .copy-btn {
+            padding: 0.875rem;
+            min-width: auto;
+        }
+        
+        .alert {
+            padding: 1rem 1.5rem;
+            border-radius: var(--border-radius);
+            margin-bottom: 1.5rem;
+            border-left: 4px solid;
+            font-weight: 500;
+            animation: slideInRight 0.5s ease-out;
+        }
+        
+        .alert-success {
+            background: rgba(16, 185, 129, 0.1);
+            color: #047857;
+            border-left-color: var(--success);
+        }
+        
+        .alert-danger {
+            background: rgba(239, 68, 68, 0.1);
+            color: #b91c1c;
+            border-left-color: var(--danger);
+        }
+        
+        .session-status {
+            text-align: center;
+            padding: 1.5rem;
+            border-radius: var(--border-radius);
+            margin-bottom: 2rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+        }
+        
+        .session-active {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.05));
+            color: #047857;
+            border: 2px solid rgba(16, 185, 129, 0.2);
+        }
+        
+        .session-inactive {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05));
+            color: #b91c1c;
+            border: 2px solid rgba(239, 68, 68, 0.2);
+        }
+        
+        .sync-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+            padding: 0.5rem 1rem;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 50px;
+        }
+        
+        .sync-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #d1d5db;
+            transition: all 0.3s ease;
+        }
+        
+        .sync-indicator.connected {
+            background: var(--success);
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+        }
+        
+        .sync-indicator.connecting {
+            background: var(--warning);
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.1); }
+        }
+        
+        #rosterInfo {
+            margin-top: 1.5rem;
+            padding: 1.5rem;
+            background: var(--gradient-light);
+            border-radius: var(--border-radius);
+            border: 1px solid rgba(102, 126, 234, 0.2);
+        }
+        
+        .attendance-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 1rem;
+            border-radius: var(--border-radius);
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+        }
+        
+        .attendee-item {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid #f1f5f9;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            animation: slideInUp 0.5s ease-out;
+        }
+        
+        .attendee-item:last-child {
+            border-bottom: none;
+        }
+        
+        .attendee-info {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+        
+        .attendee-name {
+            font-weight: 600;
+            color: var(--dark);
+        }
+        
+        .attendee-details {
+            font-size: 0.875rem;
+            color: #6b7280;
+        }
+        
+        .attendee-time {
+            text-align: right;
+            font-size: 0.875rem;
+            color: #6b7280;
+        }
+        
+        .progress-container {
+            margin: 1.5rem 0;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #f1f5f9;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 0.5rem;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: var(--gradient);
+            transition: width 0.5s ease;
+            border-radius: 4px;
+        }
+        
+        .progress-text {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.875rem;
+            color: #6b7280;
+            font-weight: 500;
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        .flex {
+            display: flex;
+        }
+        
+        .flex-1 {
+            flex: 1;
+        }
+        
+        .gap-4 {
+            gap: 1rem;
+        }
+        
+        .mb-4 {
+            margin-bottom: 1rem;
+        }
+        
+        .qr-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .qr-modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            text-align: center;
+        }
+        
+        .qr-modal img {
+            max-width: 80vw;
+            max-height: 80vh;
+        }
+        
+        .close-modal {
+            margin-top: 1rem;
+            cursor: pointer;
+        }
+        
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-50%) scaleX(0);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(-50%) scaleX(1);
+            }
+        }
+        
+        @keyframes slideInRight {
+            from {
+                opacity: 0;
+                transform: translateX(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
+        @keyframes slideInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes scaleIn {
+            from {
+                opacity: 0;
+                transform: scale(0.8);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+            
+            header h1 {
+                font-size: 2rem;
+            }
+            
+            .card {
+                padding: 1.5rem;
+            }
+            
+            .session-url .input-group {
+                flex-direction: column;
+            }
+            
+            .attendee-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.5rem;
+            }
+            
+            .attendee-time {
+                text-align: left;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-qrcode"></i> EELU Attendance System</h1>
+            <p>Teaching Assistant Dashboard</p>
+        </header>
+
+        <div id="message" class="alert hidden"></div>
+
+        <!-- Upload Roster Section -->
+        <div class="card">
+            <h2><i class="fas fa-cloud-upload-alt"></i> Upload Student Roster</h2>
+            <form id="uploadForm">
+                <div class="file-upload">
+                    <input type="file" id="roster" name="roster" accept=".xlsx,.csv" hidden>
+                    <label for="roster" class="btn">
+                        <i class="fas fa-file-excel"></i> Select Excel/CSV File
+                    </label>
+                    <div id="fileName">Drag & drop or click to browse files</div>
+                </div>
+                <div id="rosterInfo" class="hidden">
+                    <div class="flex gap-4">
+                        <div class="flex-1">
+                            <p><strong><i class="fas fa-book"></i> Subject:</strong> <span id="subjectName">-</span></p>
+                        </div>
+                        <div class="flex-1">
+                            <p><strong><i class="fas fa-users"></i> Students:</strong> <span id="studentCount">0</span></p>
+                        </div>
+                    </div>
+                </div>
+                <button type="submit" class="btn">
+                    <i class="fas fa-upload"></i> Process Roster
+                </button>
+            </form>
+        </div>
+
+        <!-- Create Session Section -->
+        <div class="card">
+            <h2><i class="fas fa-play-circle"></i> Create Attendance Session</h2>
+            <form id="sessionForm">
+                <div class="flex gap-4">
+                    <div class="form-group flex-1">
+                        <label for="week"><i class="fas fa-calendar-week"></i> Week Number</label>
+                        <input type="number" id="week" name="week" min="1" max="52" placeholder="e.g., 1" required>
+                    </div>
+                    
+                    <div class="form-group flex-1">
+                        <label for="max_attendees"><i class="fas fa-user-friends"></i> Max Attendees</label>
+                        <input type="number" id="max_attendees" name="max_attendees" min="1" max="500" value="30" required>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="password"><i class="fas fa-shield-alt"></i> Session Password (Optional)</label>
+                    <input type="password" id="password" name="password" placeholder="Leave blank for no password">
+                </div>
+                
+                <div class="form-group">
+                    <label for="ta_email"><i class="fas fa-envelope"></i> Your Outlook Email</label>
+                    <input type="email" id="ta_email" name="ta_email" placeholder="Enter your Outlook email" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="useLocation"> 
+                        <i class="fas fa-map-marker-alt"></i> Enable Location Check
+                    </label>
+                    <div id="locationSettings" class="hidden">
+                        <label for="locationDistance">Maximum Distance (meters):</label>
+                        <input type="number" id="locationDistance" value="50" min="10">
+                    </div>
+                </div>
+                
+                <button type="submit" id="createSessionBtn" class="btn" disabled>
+                    <i class="fas fa-rocket"></i> Launch Session
+                </button>
+            </form>
+        </div>
+
+        <!-- Current Session Section -->
+        <div class="card hidden" id="currentSessionCard">
+            <div class="session-status session-active" id="sessionStatus">
+                <i class="fas fa-broadcast-tower"></i> 
+                <span>Session Active & Live</span>
+                <div class="sync-status">
+                    <div class="sync-indicator" id="syncIndicator"></div>
+                    <span id="syncStatus">Connecting...</span>
+                </div>
+            </div>
+            
+            <h2><i class="fas fa-users-cog"></i> Live Session Dashboard</h2>
+            
+            <div class="flex gap-4 mb-4">
+                <div class="flex-1">
+                    <label><strong><i class="fas fa-graduation-cap"></i> Subject:</strong></label>
+                    <p id="currentSubject">-</p>
+                </div>
+                <div class="flex-1">
+                    <label><strong><i class="fas fa-calendar"></i> Week:</strong></label>
+                    <p id="currentWeek">-</p>
+                </div>
+            </div>
+            
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                </div>
+                <div class="progress-text">
+                    <span><strong>Attendance Progress</strong></span>
+                    <span><span id="attendedCount">0</span> / <span id="maxAttendeesDisplay">0</span> Students</span>
+                </div>
+            </div>
+            
+            <div class="text-center mb-4">
+                <div id="qrcode"></div>
+                <button onclick="openFullscreenQR()" class="btn btn-secondary mt-2">
+                    <i class="fas fa-expand"></i> Fullscreen QR
+                </button>
+                <p style="color: #6b7280; margin-top: 1rem;">Students can scan this QR code to mark attendance</p>
+            </div>
+            
+            <div class="form-group session-url">
+                <label><strong><i class="fas fa-link"></i> Student Access Link:</strong></label>
+                <div class="input-group">
+                    <input type="text" id="sessionUrl" readonly>
+                    <button type="button" class="btn btn-secondary copy-btn" onclick="copyToClipboard()">
+                        <i class="fas fa-copy"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label><strong><i class="fas fa-clock"></i> Live Attendance Feed:</strong></label>
+                <div id="attendanceList" class="attendance-list">
+                    <div style="padding: 2rem; text-align: center; color: #6b7280;">
+                        <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;"></i>
+                        <p>Waiting for students to join...</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="flex gap-4 mt-4">
+                <button id="exportBtn" class="btn btn-success flex-1">
+                    <i class="fas fa-download"></i> Export Report
+                </button>
+                
+                <button id="endSessionBtn" class="btn btn-danger flex-1">
+                    <i class="fas fa-stop-circle"></i> End Session
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- QR Code Modal -->
+    <div id="qrModal" class="qr-modal">
+        <div class="qr-modal-content">
+            <div id="fullscreenQr"></div>
+            <button onclick="closeFullscreenQR()" class="btn close-modal">
+                <i class="fas fa-times"></i> Close
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let rosterData = [];
+        let currentSession = null;
+        let subjectName = '';
+        let sessionRef = null;
+        let attendeesRef = null;
+        let previousAttendanceData = null;
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(initializeApp, 1000);
+            
+            // Toggle location settings
+            document.getElementById('useLocation').addEventListener('change', function() {
+                document.getElementById('locationSettings').classList.toggle('hidden', !this.checked);
+            });
+        });
+        
+        function initializeApp() {
+            const rosterInput = document.getElementById('roster');
+            const fileNameSpan = document.getElementById('fileName');
+            const uploadForm = document.getElementById('uploadForm');
+            const rosterInfoDiv = document.getElementById('rosterInfo');
+            const subjectNameSpan = document.getElementById('subjectName');
+            const studentCountSpan = document.getElementById('studentCount');
+            const sessionForm = document.getElementById('sessionForm');
+            const createSessionBtn = document.getElementById('createSessionBtn');
+            const currentSessionCard = document.getElementById('currentSessionCard');
+            const currentSubjectSpan = document.getElementById('currentSubject');
+            const currentWeekSpan = document.getElementById('currentWeek');
+            const attendedCountSpan = document.getElementById('attendedCount');
+            const maxAttendeesDisplaySpan = document.getElementById('maxAttendeesDisplay');
+            const sessionUrlInput = document.getElementById('sessionUrl');
+            const exportBtn = document.getElementById('exportBtn');
+            const endSessionBtn = document.getElementById('endSessionBtn');
+            const messageDiv = document.getElementById('message');
+            const attendanceListDiv = document.getElementById('attendanceList');
+            const syncIndicator = document.getElementById('syncIndicator');
+            const syncStatus = document.getElementById('syncStatus');
+            const sessionStatus = document.getElementById('sessionStatus');
+            
+            rosterInput.addEventListener('change', function(e) {
+                if (this.files.length > 0) {
+                    const file = this.files[0];
+                    const fileName = file.name;
+                    fileNameSpan.textContent = fileName;
+                    subjectName = fileName.replace(/\.(xlsx|csv)$/i, '').replace(/_/g, ' ');
+                    
+                    // Check if this is a previous attendance report
+                    if (fileName.includes('_Week') && fileName.includes('_to_')) {
+                        const reader = new FileReader();
+                        reader.onload = function(e) {
+                            try {
+                                const data = new Uint8Array(e.target.result);
+                                const workbook = XLSX.read(data, { type: 'array' });
+                                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                                previousAttendanceData = XLSX.utils.sheet_to_json(firstSheet);
+                            } catch (error) {
+                                console.error('Error reading previous attendance file:', error);
+                                previousAttendanceData = null;
+                            }
+                        };
+                        reader.readAsArrayBuffer(file);
+                    } else {
+                        previousAttendanceData = null;
+                    }
+                } else {
+                    fileNameSpan.textContent = 'No file chosen';
+                }
+            });
+            
+            uploadForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                if (rosterInput.files.length === 0) {
+                    showMessage('Please select a file first', 'danger');
+                    return;
+                }
+                
+                const file = rosterInput.files[0];
+                const reader = new FileReader();
+                
+                reader.onload = function(e) {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                        const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+                        
+                        rosterData = jsonData.map(row => {
+                            const id = String(row['Student ID'] || row['ID'] || row['id'] || row['StudentID'] || row['student_id'] || '').trim();
+                            const name = (row['Name'] || row['Student Name'] || row['name'] || row['StudentName'] || row['student_name'] || '').trim();
+                            const section = (row['Section'] || row['Class'] || row['section'] || row['class'] || '').trim();
+                            return { id, name, section };
+                        }).filter(student => student.id && student.name);
+                        
+                        if (rosterData.length === 0) {
+                            showMessage('No valid student data found. Please check your file format.', 'danger');
+                            return;
+                        }
+                        
+                        subjectNameSpan.textContent = subjectName;
+                        studentCountSpan.textContent = rosterData.length;
+                        rosterInfoDiv.classList.remove('hidden');
+                        createSessionBtn.disabled = false;
+                        
+                        showMessage('Roster uploaded successfully!', 'success');
+                    } catch (error) {
+                        console.error(error);
+                        showMessage('Error processing file. Please check the format.', 'danger');
+                    }
+                };
+                
+                reader.onerror = function() {
+                    showMessage('Error reading file', 'danger');
+                };
+                
+                reader.readAsArrayBuffer(file);
+            });
+            
+            sessionForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const week = document.getElementById('week').value;
+                const password = document.getElementById('password').value || null;
+                const maxAttendees = parseInt(document.getElementById('max_attendees').value);
+                const taEmail = document.getElementById('ta_email').value;
+                const useLocation = document.getElementById('useLocation').checked;
+                const locationDistance = document.getElementById('locationDistance').value || 50;
+                
+                if (!subjectName || !week || !maxAttendees || !taEmail) {
+                    showMessage('Please upload roster and fill required fields', 'danger');
+                    return;
+                }
+                
+                try {
+                    updateSyncStatus('connecting');
+                    
+                    const sessionId = 'session_' + Date.now();
+                    currentSession = {
+                        id: sessionId,
+                        subject: subjectName,
+                        week,
+                        password,
+                        maxAttendees,
+                        roster: rosterData,
+                        taEmail,
+                        createdAt: window.dbServerTimestamp(),
+                        active: true,
+                        attendeeCount: 0,
+                        useLocation,
+                        locationDistance
+                    };
+                    
+                    sessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
+                    await window.dbSet(sessionRef, currentSession);
+                    
+                    attendeesRef = window.dbRef(window.database, `sessions/${sessionId}/attendees`);
+                    window.dbOnValue(attendeesRef, (snapshot) => {
+                        const attendees = snapshot.val() || {};
+                        const attendeeList = Object.values(attendees);
+                        currentSession.attendees = attendeeList;
+                        currentSession.attendeeCount = attendeeList.length;
+                        
+                        attendedCountSpan.textContent = attendeeList.length;
+                        document.getElementById('progressFill').style.width = `${(attendeeList.length / maxAttendees) * 100}%`;
+                        updateAttendanceList(attendeeList);
+                        
+                        if (attendeeList.length >= maxAttendees && currentSession.active) {
+                            endSessionAutomatically();
+                        }
+                    });
+                    
+                    displayCurrentSession();
+                    updateSyncStatus('connected');
+                    
+                    showMessage('Attendance session started successfully!', 'success');
+                } catch (error) {
+                    console.error('Error creating session:', error);
+                    showMessage('Failed to create session. Please try again.', 'danger');
+                    updateSyncStatus('error');
+                }
+            });
+            
+            exportBtn.addEventListener('click', function() {
+                if (!currentSession) return;
+                
+                const roster = currentSession.roster || [];
+                const attendees = currentSession.attendees || [];
+                const currentWeek = currentSession.week;
+                
+                let mergedData = [];
+                
+                if (previousAttendanceData && previousAttendanceData.length > 0) {
+                    const previousDataMap = {};
+                    previousAttendanceData.forEach(row => {
+                        previousDataMap[row['Student ID']] = row;
+                    });
+                    
+                    mergedData = roster.map(student => {
+                        const previousRecord = previousDataMap[student.id] || {};
+                        const result = {
+                            'Student ID': student.id,
+                            'Name': student.name,
+                            'Section': student.section || ''
+                        };
+                        
+                        Object.keys(previousRecord).forEach(key => {
+                            if (key !== 'Student ID' && key !== 'Name' && key !== 'Section' && key !== 'Total') {
+                                result[key] = previousRecord[key];
+                            }
+                        });
+                        
+                        const attended = attendees.some(a => a.id === student.id);
+                        result[`Week ${currentWeek}`] = attended ? 1 : 0;
+                        result[`Timestamp Week ${currentWeek}`] = attended ? 
+                            new Date(attendees.find(a => a.id === student.id).timestamp).toLocaleString() : 'N/A';
+                        
+                        return result;
+                    });
+                } else {
+                    mergedData = roster.map(student => {
+                        const attended = attendees.some(a => a.id === student.id);
+                        return {
+                            'Student ID': student.id,
+                            'Name': student.name,
+                            'Section': student.section || '',
+                            [`Week ${currentWeek}`]: attended ? 1 : 0,
+                            [`Timestamp Week ${currentWeek}`]: attended ? 
+                                new Date(attendees.find(a => a.id === student.id).timestamp).toLocaleString() : 'N/A'
+                        };
+                    });
+                }
+                
+                mergedData.forEach(student => {
+                    let total = 0;
+                    Object.keys(student).forEach(key => {
+                        if (key.startsWith('Week ') && !key.startsWith('Timestamp Week ') && typeof student[key] === 'number') {
+                            total += student[key];
+                        }
+                    });
+                    student['Total'] = total;
+                });
+                
+                const sortedData = mergedData.map(student => {
+                    const ordered = {};
+                    ordered['Student ID'] = student['Student ID'];
+                    ordered['Name'] = student['Name'];
+                    ordered['Section'] = student['Section'];
+                    
+                    const weekKeys = Object.keys(student)
+                        .filter(key => key.startsWith('Week ') && !key.startsWith('Timestamp Week '))
+                        .sort((a, b) => parseInt(a.replace('Week ', '')) - parseInt(b.replace('Week ', '')));
+                    
+                    weekKeys.forEach(key => {
+                        ordered[key] = student[key];
+                    });
+                    
+                    weekKeys.forEach(key => {
+                        const timestampKey = `Timestamp ${key}`;
+                        if (student[timestampKey]) {
+                            ordered[timestampKey] = student[timestampKey];
+                        }
+                    });
+                    
+                    ordered['Total'] = student['Total'];
+                    return ordered;
+                });
+                
+                const ws = XLSX.utils.json_to_sheet(sortedData);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Attendance");
+                
+                let weekRange = `Week ${currentWeek}`;
+                if (previousAttendanceData && previousAttendanceData.length > 0) {
+                    const weekNumbers = [];
+                    Object.keys(previousAttendanceData[0]).forEach(key => {
+                        if (key.startsWith('Week ') && !key.startsWith('Timestamp Week ')) {
+                            const weekNum = parseInt(key.replace('Week ', ''));
+                            if (!isNaN(weekNum)) weekNumbers.push(weekNum);
+                        }
+                    });
+                    
+                    if (weekNumbers.length > 0) {
+                        const minWeek = Math.min(...weekNumbers);
+                        const maxWeek = Math.max(parseInt(currentWeek), ...weekNumbers);
+                        weekRange = `Week ${minWeek}_to_${maxWeek}`;
+                    }
+                }
+                
+                const today = new Date();
+                const dateStr = today.toISOString().split('T')[0];
+                const fileName = `${currentSession.subject.replace(/[^a-zA-Z0-9]/g, '_')}_${weekRange}_${dateStr}.xlsx`;
+                
+                XLSX.writeFile(wb, fileName);
+            });
+            
+            async function endSessionAutomatically() {
+                try {
+                    await window.dbSet(window.dbRef(window.database, `sessions/${currentSession.id}/active`), false);
+                    
+                    sessionStatus.className = 'session-status session-inactive';
+                    sessionStatus.innerHTML = '<i class="fas fa-stop-circle"></i> Session Ended (Auto)';
+                    
+                    showMessage('Session automatically ended - max attendance reached. Report sent to your email.', 'success');
+                    updateSyncStatus('offline');
+                    
+                    if (attendeesRef) {
+                        window.dbOff(attendeesRef);
+                    }
+                    
+                } catch (error) {
+                    console.error('Error auto-ending session:', error);
+                }
+            }
+            
+            endSessionBtn.addEventListener('click', async function() {
+                if (currentSession && sessionRef) {
+                    try {
+                        await window.dbSet(window.dbRef(window.database, `sessions/${currentSession.id}/active`), false);
+                        
+                        if (attendeesRef) {
+                            window.dbOff(attendeesRef);
+                        }
+                        
+                        sessionStatus.className = 'session-status session-inactive';
+                        sessionStatus.innerHTML = '<i class="fas fa-stop-circle"></i> Session Ended';
+                        
+                        showMessage('Session ended successfully. Attendance report has been sent to your email.', 'success');
+                        updateSyncStatus('offline');
+                        
+                        setTimeout(() => {
+                            currentSessionCard.classList.add('hidden');
+                        }, 3000);
+                    } catch (error) {
+                        console.error('Error ending session:', error);
+                        showMessage('Failed to end session', 'danger');
+                    }
+                }
+            });
+            
+            function displayCurrentSession() {
+                if (!currentSession) return;
+                
+                currentSubjectSpan.textContent = currentSession.subject;
+                currentWeekSpan.textContent = currentSession.week;
+                attendedCountSpan.textContent = currentSession.attendeeCount || 0;
+                maxAttendeesDisplaySpan.textContent = currentSession.maxAttendees;
+                
+                const formUrl = `${window.location.origin}/form.html?session=${currentSession.id}`;
+                const qr = qrcode(0, 'L');
+                qr.addData(formUrl);
+                qr.make();
+                document.getElementById('qrcode').innerHTML = qr.createImgTag(5);
+                
+                sessionUrlInput.value = formUrl;
+                currentSessionCard.classList.remove('hidden');
+            }
+            
+            function updateAttendanceList(attendees) {
+                if (!attendees || attendees.length === 0) {
+                    attendanceListDiv.innerHTML = `
+                        <div style="padding: 2rem; text-align: center; color: #6b7280;">
+                            <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;"></i>
+                            <p>Waiting for students to join...</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                const attendeesHtml = attendees
+                    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                    .map(attendee => `
+                        <div class="attendee-item">
+                            <div class="attendee-info">
+                                <span class="attendee-name">${attendee.name}</span>
+                                <span class="attendee-details">ID: ${attendee.id} | Section: ${attendee.section}</span>
+                            </div>
+                            <div class="attendee-time">
+                                ${new Date(attendee.timestamp).toLocaleTimeString()}
+                            </div>
+                        </div>
+                    `).join('');
+                
+                attendanceListDiv.innerHTML = attendeesHtml;
+            }
+            
+            function updateSyncStatus(status) {
+                const indicator = syncIndicator;
+                const statusText = syncStatus;
+                
+                indicator.className = 'sync-indicator';
+                
+                switch (status) {
+                    case 'connected':
+                        indicator.classList.add('connected');
+                        statusText.textContent = 'Online';
+                        break;
+                    case 'connecting':
+                        indicator.classList.add('connecting');
+                        statusText.textContent = 'Connecting...';
+                        break;
+                    case 'offline':
+                        statusText.textContent = 'Offline';
+                        break;
+                    case 'error':
+                        statusText.textContent = 'Connection Error';
+                        break;
+                }
+            }
+            
+            function showMessage(text, type) {
+                messageDiv.textContent = text;
+                messageDiv.className = `alert alert-${type}`;
+                messageDiv.classList.remove('hidden');
+                
+                setTimeout(() => {
+                    messageDiv.classList.add('hidden');
+                }, 5000);
+            }
+        }
+        
+        function openFullscreenQR() {
+            const modal = document.getElementById('qrModal');
+            const qrContainer = document.getElementById('fullscreenQr');
+            qrContainer.innerHTML = document.getElementById('qrcode').innerHTML;
+            modal.style.display = 'flex';
+        }
+
+        function closeFullscreenQR() {
+            document.getElementById('qrModal').style.display = 'none';
+        }
+        
+        function copyToClipboard() {
+            const urlInput = document.getElementById('sessionUrl');
+            urlInput.select();
+            urlInput.setSelectionRange(0, 99999);
+            document.execCommand('copy');
+            
+            const copyBtn = event.target.closest('.copy-btn');
+            const originalText = copyBtn.innerHTML;
+            copyBtn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+            setTimeout(() => {
+                copyBtn.innerHTML = originalText;
+            }, 2000);
+        }
+    </script>
+</body>
+</html>
