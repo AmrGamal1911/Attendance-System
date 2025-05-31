@@ -464,7 +464,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0,0,0,0.8);
+            background: rgba(0,0,0,0.9);
             z-index: 1000;
             justify-content: center;
             align-items: center;
@@ -475,16 +475,107 @@
             padding: 2rem;
             border-radius: 12px;
             text-align: center;
+            width: 90%;
+            max-width: 500px;
         }
         
         .qr-modal img {
-            max-width: 80vw;
-            max-height: 80vh;
+            width: 100%;
+            max-height: 70vh;
         }
         
         .close-modal {
             margin-top: 1rem;
             cursor: pointer;
+        }
+        
+        /* Modern toggle switch */
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+            margin-left: 10px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .toggle-slider {
+            background-color: var(--primary);
+        }
+        
+        input:checked + .toggle-slider:before {
+            transform: translateX(26px);
+        }
+        
+        /* Session history styles */
+        .session-history {
+            margin-top: 2rem;
+        }
+        
+        .session-item {
+            padding: 1rem;
+            border: 1px solid #e5e7eb;
+            border-radius: var(--border-radius);
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .session-item:hover {
+            background-color: #f8fafc;
+        }
+        
+        .session-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        /* Voice command button */
+        .voice-btn {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: var(--gradient);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: var(--shadow-lg);
+            z-index: 100;
         }
         
         @keyframes slideDown {
@@ -645,9 +736,12 @@
                 </div>
                 
                 <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="useLocation"> 
+                    <label style="display: flex; align-items: center;">
                         <i class="fas fa-map-marker-alt"></i> Enable Location Check
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="useLocation">
+                            <span class="toggle-slider"></span>
+                        </label>
                     </label>
                     <div id="locationSettings" class="hidden">
                         <label for="locationDistance">Maximum Distance (meters):</label>
@@ -733,6 +827,12 @@
                 </button>
             </div>
         </div>
+
+        <!-- Session History Section -->
+        <div class="card session-history hidden" id="sessionHistoryCard">
+            <h2><i class="fas fa-history"></i> Session History</h2>
+            <div id="sessionHistoryList"></div>
+        </div>
     </div>
 
     <!-- QR Code Modal -->
@@ -745,6 +845,11 @@
         </div>
     </div>
 
+    <!-- Voice Command Button -->
+    <div class="voice-btn" id="voiceBtn" title="Voice Commands">
+        <i class="fas fa-microphone"></i>
+    </div>
+
     <script>
         let rosterData = [];
         let currentSession = null;
@@ -752,6 +857,12 @@
         let sessionRef = null;
         let attendeesRef = null;
         let previousAttendanceData = null;
+        let sessionsHistory = [];
+        let recognition = null;
+        
+        // Initialize local storage for offline data
+        const deviceId = localStorage.getItem('deviceId') || Date.now().toString();
+        localStorage.setItem('deviceId', deviceId);
         
         document.addEventListener('DOMContentLoaded', function() {
             setTimeout(initializeApp, 1000);
@@ -760,6 +871,12 @@
             document.getElementById('useLocation').addEventListener('change', function() {
                 document.getElementById('locationSettings').classList.toggle('hidden', !this.checked);
             });
+            
+            // Initialize voice recognition
+            initVoiceCommands();
+            
+            // Load session history
+            loadSessionHistory();
         });
         
         function initializeApp() {
@@ -772,6 +889,7 @@
             const sessionForm = document.getElementById('sessionForm');
             const createSessionBtn = document.getElementById('createSessionBtn');
             const currentSessionCard = document.getElementById('currentSessionCard');
+            const sessionHistoryCard = document.getElementById('sessionHistoryCard');
             const currentSubjectSpan = document.getElementById('currentSubject');
             const currentWeekSpan = document.getElementById('currentWeek');
             const attendedCountSpan = document.getElementById('attendedCount');
@@ -784,6 +902,7 @@
             const syncIndicator = document.getElementById('syncIndicator');
             const syncStatus = document.getElementById('syncStatus');
             const sessionStatus = document.getElementById('sessionStatus');
+            const voiceBtn = document.getElementById('voiceBtn');
             
             rosterInput.addEventListener('change', function(e) {
                 if (this.files.length > 0) {
@@ -895,8 +1014,12 @@
                         active: true,
                         attendeeCount: 0,
                         useLocation,
-                        locationDistance
+                        locationDistance,
+                        deviceId: deviceId // Store device ID for offline sync
                     };
+                    
+                    // Save to local storage for offline access
+                    saveSessionToLocal(currentSession);
                     
                     sessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
                     await window.dbSet(sessionRef, currentSession);
@@ -915,16 +1038,34 @@
                         if (attendeeList.length >= maxAttendees && currentSession.active) {
                             endSessionAutomatically();
                         }
+                        
+                        // Save updated session to local storage
+                        saveSessionToLocal(currentSession);
                     });
                     
                     displayCurrentSession();
                     updateSyncStatus('connected');
                     
                     showMessage('Attendance session started successfully!', 'success');
+                    
+                    // Add to session history
+                    addToSessionHistory(currentSession);
+                    sessionHistoryCard.classList.remove('hidden');
+                    
                 } catch (error) {
                     console.error('Error creating session:', error);
-                    showMessage('Failed to create session. Please try again.', 'danger');
-                    updateSyncStatus('error');
+                    
+                    // Try offline mode
+                    if (error.code === 'unavailable') {
+                        currentSession.offline = true;
+                        saveSessionToLocal(currentSession);
+                        displayCurrentSession();
+                        updateSyncStatus('offline');
+                        showMessage('Working offline. Data will sync when connection is restored.', 'warning');
+                    } else {
+                        showMessage('Failed to create session. Please try again.', 'danger');
+                        updateSyncStatus('error');
+                    }
                 }
             });
             
@@ -1055,6 +1196,11 @@
                         window.dbOff(attendeesRef);
                     }
                     
+                    // Update local storage
+                    currentSession.active = false;
+                    saveSessionToLocal(currentSession);
+                    updateSessionHistory(currentSession);
+                    
                 } catch (error) {
                     console.error('Error auto-ending session:', error);
                 }
@@ -1074,6 +1220,11 @@
                         
                         showMessage('Session ended successfully. Attendance report has been sent to your email.', 'success');
                         updateSyncStatus('offline');
+                        
+                        // Update local storage
+                        currentSession.active = false;
+                        saveSessionToLocal(currentSession);
+                        updateSessionHistory(currentSession);
                         
                         setTimeout(() => {
                             currentSessionCard.classList.add('hidden');
@@ -1164,32 +1315,222 @@
                     messageDiv.classList.add('hidden');
                 }, 5000);
             }
-        }
-        
-        function openFullscreenQR() {
-            const modal = document.getElementById('qrModal');
-            const qrContainer = document.getElementById('fullscreenQr');
-            qrContainer.innerHTML = document.getElementById('qrcode').innerHTML;
-            modal.style.display = 'flex';
-        }
-
-        function closeFullscreenQR() {
-            document.getElementById('qrModal').style.display = 'none';
-        }
-        
-        function copyToClipboard() {
-            const urlInput = document.getElementById('sessionUrl');
-            urlInput.select();
-            urlInput.setSelectionRange(0, 99999);
-            document.execCommand('copy');
             
-            const copyBtn = event.target.closest('.copy-btn');
-            const originalText = copyBtn.innerHTML;
-            copyBtn.innerHTML = '<i class="fas fa-check"></i> Copied!';
-            setTimeout(() => {
-                copyBtn.innerHTML = originalText;
-            }, 2000);
+            function openFullscreenQR() {
+                const modal = document.getElementById('qrModal');
+                const qrContainer = document.getElementById('fullscreenQr');
+                
+                // Create a larger QR code for fullscreen
+                const formUrl = `${window.location.origin}/form.html?session=${currentSession.id}`;
+                const qr = qrcode(0, 'L');
+                qr.addData(formUrl);
+                qr.make();
+                
+                // Make QR code larger for fullscreen
+                qrContainer.innerHTML = qr.createImgTag(10); // Increased size
+                modal.style.display = 'flex';
+            }
+
+            function closeFullscreenQR() {
+                document.getElementById('qrModal').style.display = 'none';
+            }
+            
+            function copyToClipboard() {
+                const urlInput = document.getElementById('sessionUrl');
+                urlInput.select();
+                urlInput.setSelectionRange(0, 99999);
+                document.execCommand('copy');
+                
+                const copyBtn = event.target.closest('.copy-btn');
+                const originalText = copyBtn.innerHTML;
+                copyBtn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalText;
+                }, 2000);
+            }
+            
+            // Local storage functions for offline support
+            function saveSessionToLocal(session) {
+                const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
+                sessions[session.id] = session;
+                localStorage.setItem('sessions', JSON.stringify(sessions));
+            }
+            
+            function loadSessionFromLocal(sessionId) {
+                const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
+                return sessions[sessionId];
+            }
+            
+            function syncOfflineData() {
+                const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
+                Object.values(sessions).forEach(session => {
+                    if (session.offline && session.deviceId === deviceId) {
+                        // Try to sync with Firebase
+                        const sessionRef = window.dbRef(window.database, `sessions/${session.id}`);
+                        window.dbSet(sessionRef, session)
+                            .then(() => {
+                                // Remove offline flag on success
+                                session.offline = false;
+                                saveSessionToLocal(session);
+                            })
+                            .catch(error => {
+                                console.error('Sync failed:', error);
+                            });
+                    }
+                });
+            }
+            
+            // Session history functions
+            function addToSessionHistory(session) {
+                const history = JSON.parse(localStorage.getItem('sessionHistory') || '[]');
+                history.unshift({
+                    id: session.id,
+                    subject: session.subject,
+                    week: session.week,
+                    date: new Date().toISOString(),
+                    attendees: session.attendeeCount || 0,
+                    maxAttendees: session.maxAttendees,
+                    deviceId: deviceId
+                });
+                
+                // Keep only the last 20 sessions
+                if (history.length > 20) {
+                    history.length = 20;
+                }
+                
+                localStorage.setItem('sessionHistory', JSON.stringify(history));
+                renderSessionHistory();
+            }
+            
+            function updateSessionHistory(updatedSession) {
+                const history = JSON.parse(localStorage.getItem('sessionHistory') || '[]');
+                const sessionIndex = history.findIndex(s => s.id === updatedSession.id);
+                
+                if (sessionIndex !== -1) {
+                    history[sessionIndex].attendees = updatedSession.attendeeCount || 0;
+                    history[sessionIndex].active = updatedSession.active;
+                    localStorage.setItem('sessionHistory', JSON.stringify(history));
+                    renderSessionHistory();
+                }
+            }
+            
+            function loadSessionHistory() {
+                renderSessionHistory();
+                
+                // Check for network changes to sync offline data
+                window.addEventListener('online', syncOfflineData);
+                
+                // Initial sync check
+                syncOfflineData();
+            }
+            
+            function renderSessionHistory() {
+                const historyList = document.getElementById('sessionHistoryList');
+                const history = JSON.parse(localStorage.getItem('sessionHistory') || '[]')
+                    .filter(session => session.deviceId === deviceId); // Only show sessions from this device
+                
+                if (history.length === 0) {
+                    historyList.innerHTML = '<p>No previous sessions found</p>';
+                    return;
+                }
+                
+                historyList.innerHTML = history.map(session => `
+                    <div class="session-item">
+                        <div>
+                            <strong>${session.subject}</strong> - Week ${session.week}
+                            <div class="text-sm text-gray-500">
+                                ${new Date(session.date).toLocaleString()} | 
+                                ${session.attendees}/${session.maxAttendees} students
+                            </div>
+                        </div>
+                        <div class="session-actions">
+                            <button onclick="cloneSession('${session.id}')" class="btn btn-secondary" title="Clone Session">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+            
+            function cloneSession(sessionId) {
+                const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
+                const sessionToClone = sessions[sessionId];
+                
+                if (sessionToClone) {
+                    // Pre-fill the form with cloned session data
+                    document.getElementById('week').value = sessionToClone.week;
+                    document.getElementById('max_attendees').value = sessionToClone.maxAttendees;
+                    document.getElementById('password').value = sessionToClone.password || '';
+                    document.getElementById('useLocation').checked = sessionToClone.useLocation || false;
+                    document.getElementById('locationDistance').value = sessionToClone.locationDistance || 50;
+                    
+                    // Show location settings if enabled
+                    document.getElementById('locationSettings').classList.toggle('hidden', !sessionToClone.useLocation);
+                    
+                    showMessage('Session settings loaded. Click "Launch Session" to create a new session.', 'success');
+                } else {
+                    showMessage('Session data not found', 'danger');
+                }
+            }
+            
+            // Voice command functions
+            function initVoiceCommands() {
+                try {
+                    recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+                    recognition.continuous = false;
+                    recognition.interimResults = false;
+                    
+                    recognition.onresult = function(event) {
+                        const transcript = event.results[0][0].transcript.toLowerCase();
+                        handleVoiceCommand(transcript);
+                    };
+                    
+                    recognition.onerror = function(event) {
+                        console.error('Voice recognition error', event.error);
+                    };
+                    
+                    voiceBtn.addEventListener('click', function() {
+                        try {
+                            recognition.start();
+                            voiceBtn.innerHTML = '<i class="fas fa-microphone-slash"></i>';
+                            showMessage('Listening for commands...', 'info');
+                        } catch (error) {
+                            console.error('Voice recognition failed:', error);
+                            showMessage('Voice commands not supported in your browser', 'danger');
+                        }
+                    });
+                    
+                    recognition.onend = function() {
+                        voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+                    };
+                } catch (error) {
+                    console.error('Voice recognition not supported:', error);
+                    voiceBtn.style.display = 'none';
+                }
+            }
+            
+            function handleVoiceCommand(command) {
+                showMessage(`Heard: "${command}"`, 'info');
+                
+                if (command.includes('start session') || command.includes('begin session')) {
+                    document.getElementById('sessionForm').dispatchEvent(new Event('submit'));
+                } else if (command.includes('end session') || command.includes('stop session')) {
+                    if (document.getElementById('endSessionBtn')) {
+                        document.getElementById('endSessionBtn').click();
+                    }
+                } else if (command.includes('fullscreen') || command.includes('show qr')) {
+                    openFullscreenQR();
+                } else {
+                    showMessage('Command not recognized. Try "start session" or "end session"', 'warning');
+                }
+            }
         }
+        
+        // Make functions available globally
+        window.cloneSession = cloneSession;
+        window.openFullscreenQR = openFullscreenQR;
+        window.closeFullscreenQR = closeFullscreenQR;
+        window.copyToClipboard = copyToClipboard;
     </script>
 </body>
 </html>
