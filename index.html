@@ -573,6 +573,33 @@
             cursor: pointer;
             box-shadow: var(--shadow-lg);
             z-index: 100;
+            transition: all 0.3s ease;
+            overflow: hidden;
+        }
+        
+        .voice-btn::before {
+            content: 'Voice Commands';
+            position: absolute;
+            right: 70px;
+            white-space: nowrap;
+            background: var(--gradient);
+            padding: 0.5rem 1rem;
+            border-radius: 30px;
+            opacity: 0;
+            transition: all 0.3s ease;
+            font-size: 0.9rem;
+        }
+        
+        .voice-btn:hover {
+            width: 200px;
+            border-radius: 30px;
+            justify-content: flex-end;
+            padding-right: 1rem;
+        }
+        
+        .voice-btn:hover::before {
+            opacity: 1;
+            right: 50px;
         }
         
         @keyframes slideDown {
@@ -667,6 +694,17 @@
             .attendee-time {
                 text-align: left;
             }
+            
+            .voice-btn:hover {
+                width: 60px;
+                border-radius: 50%;
+                justify-content: center;
+                padding-right: 0;
+            }
+            
+            .voice-btn:hover::before {
+                display: none;
+            }
         }
     </style>
 </head>
@@ -692,8 +730,9 @@
                 </div>
                 <div id="rosterInfo" class="hidden">
                     <div class="flex gap-4">
-                        <div class="flex-1">
-                            <p><strong><i class="fas fa-book"></i> Subject:</strong> <span id="subjectName">-</span></p>
+                        <div class="form-group flex-1">
+                            <label for="subjectNameInput"><i class="fas fa-book"></i> Subject Name</label>
+                            <input type="text" id="subjectNameInput" placeholder="Enter subject name">
                         </div>
                         <div class="flex-1">
                             <p><strong><i class="fas fa-users"></i> Students:</strong> <span id="studentCount">0</span></p>
@@ -861,7 +900,9 @@
 
             init: function() {
                 localStorage.setItem('deviceId', this.deviceId);
-                setTimeout(this.initializeApp.bind(this), 1000);
+                
+                // Initialize drag and drop
+                this.setupDragAndDrop();
                 
                 document.getElementById('useLocation').addEventListener('change', function() {
                     document.getElementById('locationSettings').classList.toggle('hidden', !this.checked);
@@ -869,6 +910,60 @@
                 
                 this.initVoiceCommands();
                 this.loadSessionHistory();
+                this.initializeApp();
+            },
+
+            setupDragAndDrop: function() {
+                const fileUpload = document.querySelector('.file-upload');
+                const fileInput = document.getElementById('roster');
+                const fileNameSpan = document.getElementById('fileName');
+
+                // Prevent default drag behaviors
+                ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                    fileUpload.addEventListener(eventName, preventDefaults, false);
+                });
+
+                function preventDefaults(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+
+                // Highlight drop area when item is dragged over it
+                ['dragenter', 'dragover'].forEach(eventName => {
+                    fileUpload.addEventListener(eventName, highlight, false);
+                });
+
+                ['dragleave', 'drop'].forEach(eventName => {
+                    fileUpload.addEventListener(eventName, unhighlight, false);
+                });
+
+                function highlight() {
+                    fileUpload.classList.add('bg-blue-50');
+                    fileUpload.style.borderColor = 'var(--primary)';
+                }
+
+                function unhighlight() {
+                    fileUpload.classList.remove('bg-blue-50');
+                    fileUpload.style.borderColor = '#d1d5db';
+                }
+
+                // Handle dropped files
+                fileUpload.addEventListener('drop', handleDrop, false);
+
+                function handleDrop(e) {
+                    const dt = e.dataTransfer;
+                    const files = dt.files;
+                    
+                    if (files.length) {
+                        fileInput.files = files;
+                        fileNameSpan.textContent = files[0].name;
+                        
+                        // Extract subject name from filename (without extension)
+                        const fileName = files[0].name;
+                        const subjectFromFile = fileName.replace(/\.[^/.]+$/, "").replace(/_/g, ' ');
+                        document.getElementById('subjectNameInput').value = subjectFromFile;
+                    }
+                }
             },
 
             initializeApp: function() {
@@ -876,7 +971,6 @@
                 const fileNameSpan = document.getElementById('fileName');
                 const uploadForm = document.getElementById('uploadForm');
                 const rosterInfoDiv = document.getElementById('rosterInfo');
-                const subjectNameSpan = document.getElementById('subjectName');
                 const studentCountSpan = document.getElementById('studentCount');
                 const sessionForm = document.getElementById('sessionForm');
                 const createSessionBtn = document.getElementById('createSessionBtn');
@@ -885,7 +979,10 @@
                     if (this.files.length > 0) {
                         const file = this.files[0];
                         fileNameSpan.textContent = file.name;
-                        app.subjectName = file.name.replace(/\.(xlsx|csv)$/i, '').replace(/_/g, ' ');
+                        
+                        // Extract subject name from filename (without extension)
+                        const subjectFromFile = file.name.replace(/\.[^/.]+$/, "").replace(/_/g, ' ');
+                        document.getElementById('subjectNameInput').value = subjectFromFile;
                         
                         if (file.name.includes('_Week') && file.name.includes('_to_')) {
                             const reader = new FileReader();
@@ -938,7 +1035,10 @@
                                 return;
                             }
                             
-                            subjectNameSpan.textContent = app.subjectName;
+                            // Get subject name from input field
+                            app.subjectName = document.getElementById('subjectNameInput').value || 
+                                             file.name.replace(/\.(xlsx|csv)$/i, '').replace(/_/g, ' ');
+                            
                             studentCountSpan.textContent = app.rosterData.length;
                             rosterInfoDiv.classList.remove('hidden');
                             createSessionBtn.disabled = false;
@@ -1039,7 +1139,9 @@
                     app.exportAttendanceReport();
                 });
                 
-                document.getElementById('endSessionBtn').addEventListener('click', app.endSession.bind(app));
+                document.getElementById('endSessionBtn').addEventListener('click', function() {
+                    app.endSession();
+                });
             },
 
             exportAttendanceReport: function() {
@@ -1132,7 +1234,21 @@
                 
                 const today = new Date();
                 const dateStr = today.toISOString().split('T')[0];
-                const fileName = `${app.currentSession.subject.replace(/[^a-zA-Z0-9]/g, '_')}_Week_${currentWeek}_${dateStr}.xlsx`;
+                
+                // Find all week numbers to create the filename
+                const weekNumbers = [];
+                if (sortedData.length > 0) {
+                    Object.keys(sortedData[0]).forEach(key => {
+                        if (key.startsWith('Week ') && !key.startsWith('Timestamp Week ')) {
+                            weekNumbers.push(parseInt(key.replace('Week ', '')));
+                        }
+                    });
+                }
+                
+                const minWeek = weekNumbers.length > 0 ? Math.min(...weekNumbers) : currentWeek;
+                const maxWeek = weekNumbers.length > 0 ? Math.max(...weekNumbers) : currentWeek;
+                
+                const fileName = `${app.currentSession.subject.replace(/[^a-zA-Z0-9]/g, '_')}_Attendance_from_Week_${minWeek}_to_Week_${maxWeek}_${dateStr}.xlsx`;
                 
                 XLSX.writeFile(wb, fileName);
             },
@@ -1143,7 +1259,7 @@
                     
                     const sessionStatus = document.getElementById('sessionStatus');
                     sessionStatus.className = 'session-status session-inactive';
-                    sessionStatus.innerHTML = '<i class="fas fa-stop-circle"></i> Session Ended (Auto)';
+                    sessionStatus.innerHTML = '<i class="fas fa-users"></i> <span>Max students reached</span>';
                     
                     app.showMessage('Session automatically ended - max attendance reached. Report sent to your email.', 'success');
                     app.updateSyncStatus('offline');
@@ -1172,7 +1288,7 @@
                         
                         const sessionStatus = document.getElementById('sessionStatus');
                         sessionStatus.className = 'session-status session-inactive';
-                        sessionStatus.innerHTML = '<i class="fas fa-stop-circle"></i> Session Ended';
+                        sessionStatus.innerHTML = '<i class="fas fa-stop-circle"></i> <span>Session Ended</span>';
                         
                         app.showMessage('Session ended successfully. Attendance report has been sent to your email.', 'success');
                         app.updateSyncStatus('offline');
@@ -1375,6 +1491,7 @@
                 
                 if (history.length === 0) {
                     historyList.innerHTML = '<p>No previous sessions found</p>';
+                    document.getElementById('sessionHistoryCard').classList.add('hidden');
                     return;
                 }
                 
@@ -1400,6 +1517,8 @@
                         </div>
                     </div>
                 `).join('');
+                
+                document.getElementById('sessionHistoryCard').classList.remove('hidden');
             },
 
             generateSessionQR: function(sessionId) {
@@ -1457,14 +1576,21 @@
                 
                 const today = new Date();
                 const dateStr = today.toISOString().split('T')[0];
-                const fileName = `${session.subject.replace(/[^a-zA-Z0-9]/g, '_')}_Week_${week}_${dateStr}.xlsx`;
+                const fileName = `${session.subject.replace(/[^a-zA-Z0-9]/g, '_')}_Attendance_Week_${week}_${dateStr}.xlsx`;
                 
                 XLSX.writeFile(wb, fileName);
             },
 
             initVoiceCommands: function() {
                 try {
-                    app.recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+                    if ('webkitSpeechRecognition' in window) {
+                        app.recognition = new webkitSpeechRecognition();
+                    } else if ('SpeechRecognition' in window) {
+                        app.recognition = new SpeechRecognition();
+                    } else {
+                        throw new Error('Speech recognition not supported');
+                    }
+                    
                     app.recognition.continuous = false;
                     app.recognition.interimResults = false;
                     app.recognition.lang = 'en-US';
@@ -1512,15 +1638,29 @@
                 app.showMessage(`Heard: "${command}"`, 'info');
                 
                 if (command.includes('start session') || command.includes('begin session')) {
-                    document.getElementById('sessionForm').dispatchEvent(new Event('submit'));
+                    if (!document.getElementById('createSessionBtn').disabled) {
+                        document.getElementById('sessionForm').dispatchEvent(new Event('submit'));
+                    } else {
+                        app.showMessage('Please upload a roster first', 'warning');
+                    }
                 } else if (command.includes('end session') || command.includes('stop session')) {
-                    if (document.getElementById('endSessionBtn')) {
+                    if (document.getElementById('endSessionBtn') && !document.getElementById('endSessionBtn').disabled) {
                         document.getElementById('endSessionBtn').click();
+                    } else {
+                        app.showMessage('No active session to end', 'warning');
                     }
                 } else if (command.includes('fullscreen') || command.includes('show qr')) {
-                    app.openFullscreenQR();
+                    if (document.getElementById('currentSessionCard') && !document.getElementById('currentSessionCard').classList.contains('hidden')) {
+                        app.openFullscreenQR();
+                    } else {
+                        app.showMessage('No active session to show QR code', 'warning');
+                    }
                 } else if (command.includes('copy link') || command.includes('session link')) {
-                    app.copyToClipboard();
+                    if (document.getElementById('currentSessionCard') && !document.getElementById('currentSessionCard').classList.contains('hidden')) {
+                        app.copyToClipboard();
+                    } else {
+                        app.showMessage('No active session to copy link', 'warning');
+                    }
                 } else {
                     app.showMessage('Command not recognized. Try "start session" or "end session"', 'warning');
                 }
