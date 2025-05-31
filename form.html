@@ -373,200 +373,182 @@
     </div>
 
     <script>
-        let currentSessionId = null;
-        let sessionData = null;
-        let sessionRef = null;
-        let attendeesRef = null;
-        let lastLocation = null;
-        
-        document.addEventListener('DOMContentLoaded', function() {
-            setTimeout(initializeApp, 1000);
-        });
-        
-        function initializeApp() {
-            const loadingSection = document.getElementById('loadingSection');
-            const activeSessionDiv = document.getElementById('activeSession');
-            const closedSessionDiv = document.getElementById('closedSession');
-            const noSessionDiv = document.getElementById('noSession');
-            const connectionIndicator = document.getElementById('connectionIndicator');
-            const connectionStatus = document.getElementById('connectionStatus');
-            const displaySubjectSpan = document.getElementById('displaySubject');
-            const displayWeekSpan = document.getElementById('displayWeek');
-            const attendedCountSpan = document.getElementById('attendedCount');
-            const maxAttendeesSpan = document.getElementById('maxAttendees');
-            const attendanceForm = document.getElementById('attendanceForm');
-            const messageDiv = document.getElementById('message');
-            const submitBtn = document.getElementById('submitBtn');
-            const passwordField = document.getElementById('passwordField');
-            
-            currentSessionId = new URLSearchParams(window.location.search).get('session');
-            
-            if (!currentSessionId) {
-                showNoSession();
-                return;
-            }
-            
-            initializeSession();
-            
-            attendanceForm.addEventListener('submit', function(e) {
-                e.preventDefault();
-                submitAttendance();
-            });
-            
-            async function initializeSession() {
-                updateConnectionStatus('connecting');
+        const formApp = {
+            currentSessionId: null,
+            sessionData: null,
+            sessionRef: null,
+            attendeesRef: null,
+            lastLocation: null,
+
+            init: function() {
+                this.currentSessionId = new URLSearchParams(window.location.search).get('session');
+                
+                if (!this.currentSessionId) {
+                    this.showNoSession();
+                    return;
+                }
+                
+                this.initializeSession();
+                
+                document.getElementById('attendanceForm').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.submitAttendance();
+                });
+            },
+
+            initializeSession: function() {
+                this.updateConnectionStatus('connecting');
                 
                 try {
-                    sessionRef = window.dbRef(window.database, `sessions/${currentSessionId}`);
-                    attendeesRef = window.dbRef(window.database, `sessions/${currentSessionId}/attendees`);
+                    this.sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
+                    this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
                     
-                    window.dbOnValue(sessionRef, (snapshot) => {
+                    window.dbOnValue(this.sessionRef, (snapshot) => {
                         const data = snapshot.val();
                         
                         if (!data) {
-                            showNoSession();
+                            this.showNoSession();
                             return;
                         }
                         
-                        sessionData = data;
+                        this.sessionData = data;
                         
-                        if (!sessionData.active) {
-                            showClosedSession();
+                        if (!this.sessionData.active) {
+                            this.showClosedSession();
                             return;
                         }
                         
-                        showActiveSession();
-                        updateConnectionStatus('connected');
+                        this.showActiveSession();
+                        this.updateConnectionStatus('connected');
                         
-                        // Show password field only if password exists
-                        if (sessionData.password) {
-                            passwordField.classList.remove('hidden');
+                        if (this.sessionData.password) {
+                            document.getElementById('passwordField').classList.remove('hidden');
                         }
                     });
                     
-                    window.dbOnValue(attendeesRef, (snapshot) => {
+                    window.dbOnValue(this.attendeesRef, (snapshot) => {
                         const attendees = snapshot.val() || {};
                         const attendeeList = Object.values(attendees);
                         
-                        if (sessionData) {
-                            sessionData.attendees = attendeeList;
-                            updateAttendanceCount();
+                        if (this.sessionData) {
+                            this.sessionData.attendees = attendeeList;
+                            this.updateAttendanceCount();
                             
-                            if (attendeeList.length >= sessionData.maxAttendees && sessionData.active) {
-                                window.dbSet(window.dbRef(window.database, `sessions/${currentSessionId}/active`), false);
+                            if (attendeeList.length >= this.sessionData.maxAttendees && this.sessionData.active) {
+                                window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/active`), false);
                             }
                         }
                     });
                     
                 } catch (error) {
                     console.error('Failed to initialize session:', error);
-                    showMessage('Failed to connect to session', 'danger');
-                    updateConnectionStatus('error');
+                    this.showMessage('Failed to connect to session', 'danger');
+                    this.updateConnectionStatus('error');
                 }
-            }
-            
-            function showActiveSession() {
-                loadingSection.classList.add('hidden');
-                activeSessionDiv.classList.remove('hidden');
-                closedSessionDiv.classList.add('hidden');
-                noSessionDiv.classList.add('hidden');
+            },
+
+            showActiveSession: function() {
+                document.getElementById('loadingSection').classList.add('hidden');
+                document.getElementById('activeSession').classList.remove('hidden');
+                document.getElementById('closedSession').classList.add('hidden');
+                document.getElementById('noSession').classList.add('hidden');
                 
-                if (sessionData) {
-                    displaySubjectSpan.textContent = sessionData.subject || '-';
-                    displayWeekSpan.textContent = sessionData.week || '-';
-                    maxAttendeesSpan.textContent = sessionData.maxAttendees || '-';
-                    updateAttendanceCount();
+                if (this.sessionData) {
+                    document.getElementById('displaySubject').textContent = this.sessionData.subject || '-';
+                    document.getElementById('displayWeek').textContent = this.sessionData.week || '-';
+                    document.getElementById('maxAttendees').textContent = this.sessionData.maxAttendees || '-';
+                    this.updateAttendanceCount();
                 }
-            }
-            
-            function showClosedSession() {
-                loadingSection.classList.add('hidden');
-                activeSessionDiv.classList.add('hidden');
-                closedSessionDiv.classList.remove('hidden');
-                noSessionDiv.classList.add('hidden');
-                updateConnectionStatus('offline');
+            },
+
+            showClosedSession: function() {
+                document.getElementById('loadingSection').classList.add('hidden');
+                document.getElementById('activeSession').classList.add('hidden');
+                document.getElementById('closedSession').classList.remove('hidden');
+                document.getElementById('noSession').classList.add('hidden');
+                this.updateConnectionStatus('offline');
                 
-                if (sessionRef) window.dbOff(sessionRef);
-                if (attendeesRef) window.dbOff(attendeesRef);
-            }
-            
-            function showNoSession() {
-                loadingSection.classList.add('hidden');
-                activeSessionDiv.classList.add('hidden');
-                closedSessionDiv.classList.add('hidden');
-                noSessionDiv.classList.remove('hidden');
-                updateConnectionStatus('offline');
-            }
-            
-            function updateAttendanceCount() {
-                if (sessionData && sessionData.attendees) {
-                    const attendedCount = sessionData.attendees.length;
-                    attendedCountSpan.textContent = attendedCount;
+                if (this.sessionRef) window.dbOff(this.sessionRef);
+                if (this.attendeesRef) window.dbOff(this.attendeesRef);
+            },
+
+            showNoSession: function() {
+                document.getElementById('loadingSection').classList.add('hidden');
+                document.getElementById('activeSession').classList.add('hidden');
+                document.getElementById('closedSession').classList.add('hidden');
+                document.getElementById('noSession').classList.remove('hidden');
+                this.updateConnectionStatus('offline');
+            },
+
+            updateAttendanceCount: function() {
+                if (this.sessionData && this.sessionData.attendees) {
+                    const attendedCount = this.sessionData.attendees.length;
+                    document.getElementById('attendedCount').textContent = attendedCount;
                     
-                    if (attendedCount >= sessionData.maxAttendees) {
-                        submitBtn.disabled = true;
-                        showMessage('This session is full', 'info');
+                    if (attendedCount >= this.sessionData.maxAttendees) {
+                        document.getElementById('submitBtn').disabled = true;
+                        this.showMessage('This session is full', 'info');
                     } else {
-                        submitBtn.disabled = false;
+                        document.getElementById('submitBtn').disabled = false;
                     }
                 } else {
-                    attendedCountSpan.textContent = '0';
+                    document.getElementById('attendedCount').textContent = '0';
                 }
-            }
-            
-            async function submitAttendance() {
+            },
+
+            async submitAttendance() {
                 const studentId = document.getElementById('student_id').value.trim().toUpperCase();
                 const password = document.getElementById('password')?.value;
                 
                 if (!studentId) {
-                    showMessage('Please enter your student ID', 'danger');
+                    this.showMessage('Please enter your student ID', 'danger');
                     return;
                 }
 
-                if (sessionData.password && password !== sessionData.password) {
-                    showMessage('Invalid password', 'danger');
+                if (this.sessionData.password && password !== this.sessionData.password) {
+                    this.showMessage('Invalid password', 'danger');
                     return;
                 }
                 
-                // Always get fresh location if enabled
-                if (sessionData.useLocation) {
+                if (this.sessionData.useLocation) {
                     try {
-                        const studentLocation = await getFreshLocation();
-                        const distance = calculateDistance(
+                        const studentLocation = await this.getFreshLocation();
+                        const distance = this.calculateDistance(
                             studentLocation, 
-                            sessionData.classLocation,
-                            sessionData.locationDistance || 50
+                            this.sessionData.classLocation,
+                            this.sessionData.locationDistance || 50
                         );
                         
-                        if (distance > sessionData.locationDistance) {
-                            showMessage(`You must be within ${sessionData.locationDistance}m of the class`, 'danger');
+                        if (distance > this.sessionData.locationDistance) {
+                            this.showMessage(`You must be within ${this.sessionData.locationDistance}m of the class`, 'danger');
                             return;
                         }
                     } catch (error) {
-                        showMessage('Location access required', 'danger');
+                        this.showMessage('Location access required', 'danger');
                         return;
                     }
                 }
                 
-                const currentAttendees = sessionData.attendees || [];
-                if (currentAttendees.length >= sessionData.maxAttendees) {
-                    showMessage('This session is full', 'danger');
+                const currentAttendees = this.sessionData.attendees || [];
+                if (currentAttendees.length >= this.sessionData.maxAttendees) {
+                    this.showMessage('This session is full', 'danger');
                     return;
                 }
                 
-                const student = sessionData.roster ? 
-                    sessionData.roster.find(s => s.id.toUpperCase() === studentId) : null;
+                const student = this.sessionData.roster ? 
+                    this.sessionData.roster.find(s => s.id.toUpperCase() === studentId) : null;
                 
                 if (!student) {
-                    showMessage('Student ID not found in roster', 'danger');
+                    this.showMessage('Student ID not found in roster', 'danger');
                     return;
                 }
                 
                 if (currentAttendees.some(a => a.id.toUpperCase() === studentId)) {
-                    showMessage('Attendance already recorded for this student', 'danger');
+                    this.showMessage('Attendance already recorded for this student', 'danger');
                     return;
                 }
                 
+                const submitBtn = document.getElementById('submitBtn');
                 submitBtn.disabled = true;
                 submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
                 
@@ -578,47 +560,51 @@
                         timestamp: Date.now()
                     };
                     
-                    await window.dbPush(attendeesRef, newAttendee);
+                    await window.dbPush(this.attendeesRef, newAttendee);
                     
-                    showMessage(`Attendance recorded successfully for ${student.name}!`, 'success');
+                    this.showMessage(`Attendance recorded successfully for ${student.name}!`, 'success');
                     document.getElementById('student_id').value = '';
                     if (password) document.getElementById('password').value = '';
                     
                     setTimeout(() => {
-                        showMessage('', 'success'); // Clear the message
+                        this.showMessage('', 'success');
                     }, 3000);
                     
                 } catch (error) {
                     console.error('Error submitting attendance:', error);
-                    showMessage('Failed to submit attendance. Please try again.', 'danger');
+                    this.showMessage('Failed to submit attendance. Please try again.', 'danger');
                 } finally {
                     submitBtn.disabled = false;
                     submitBtn.innerHTML = '<i class="fas fa-check-circle"></i> Submit Attendance';
                 }
-            }
-            
-            function updateConnectionStatus(status) {
-                connectionIndicator.className = 'status-indicator';
+            },
+
+            updateConnectionStatus: function(status) {
+                const indicator = document.getElementById('connectionIndicator');
+                const statusText = document.getElementById('connectionStatus');
+                
+                indicator.className = 'status-indicator';
                 
                 switch (status) {
                     case 'connected':
-                        connectionIndicator.classList.add('connected');
-                        connectionStatus.textContent = 'Connected';
+                        indicator.classList.add('connected');
+                        statusText.textContent = 'Connected';
                         break;
                     case 'connecting':
-                        connectionIndicator.classList.add('connecting');
-                        connectionStatus.textContent = 'Connecting...';
+                        indicator.classList.add('connecting');
+                        statusText.textContent = 'Connecting...';
                         break;
                     case 'offline':
-                        connectionStatus.textContent = 'Offline';
+                        statusText.textContent = 'Offline';
                         break;
                     case 'error':
-                        connectionStatus.textContent = 'Connection Error';
+                        statusText.textContent = 'Connection Error';
                         break;
                 }
-            }
-            
-            function showMessage(text, type) {
+            },
+
+            showMessage: function(text, type) {
+                const messageDiv = document.getElementById('message');
                 messageDiv.textContent = text;
                 messageDiv.className = `alert alert-${type}`;
                 messageDiv.classList.remove('hidden');
@@ -628,9 +614,9 @@
                         messageDiv.classList.add('hidden');
                     }, 5000);
                 }
-            }
-            
-            function getFreshLocation() {
+            },
+
+            getFreshLocation: function() {
                 return new Promise((resolve, reject) => {
                     if (!navigator.geolocation) {
                         reject('Geolocation not supported');
@@ -644,7 +630,7 @@
                                 lng: position.coords.longitude,
                                 accuracy: position.coords.accuracy
                             };
-                            lastLocation = location;
+                            this.lastLocation = location;
                             resolve(location);
                         },
                         error => {
@@ -653,13 +639,12 @@
                         { enableHighAccuracy: true, timeout: 10000 }
                     );
                 });
-            }
-            
-            function calculateDistance(studentLoc, classLoc, maxDistance) {
+            },
+
+            calculateDistance: function(studentLoc, classLoc, maxDistance) {
                 if (!classLoc || !studentLoc) return 0;
                 
-                // Haversine formula to calculate distance between two coordinates
-                const R = 6371e3; // Earth radius in meters
+                const R = 6371e3;
                 const φ1 = studentLoc.lat * Math.PI/180;
                 const φ2 = classLoc.lat * Math.PI/180;
                 const Δφ = (classLoc.lat - studentLoc.lat) * Math.PI/180;
@@ -670,12 +655,13 @@
                           Math.sin(Δλ/2) * Math.sin(Δλ/2);
                 const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
                 
-                return R * c; // Distance in meters
+                return R * c;
             }
-        }
-        
-        // Make functions available globally if needed
-        window.showMessage = showMessage;
+        };
+
+        document.addEventListener('DOMContentLoaded', function() {
+            formApp.init();
+        });
     </script>
 </body>
 </html>
