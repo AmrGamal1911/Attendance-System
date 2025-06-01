@@ -1038,9 +1038,9 @@
                                 return;
                             }
                             
-                            // Get subject name from input field
-                            app.subjectName = document.getElementById('subjectNameInput').value || 
-                                             file.name.replace(/\.(xlsx|csv)$/i, '').replace(/_/g, ' ');
+                            // Get subject name from input field (preferred) or fallback to filename
+                            const subjectInput = document.getElementById('subjectNameInput').value.trim();
+                            app.subjectName = subjectInput || file.name.replace(/\.(xlsx|csv)$/i, '').replace(/_/g, ' ');
                             
                             studentCountSpan.textContent = app.rosterData.length;
                             rosterInfoDiv.classList.remove('hidden');
@@ -1142,8 +1142,8 @@
                             };
                             finalizeSession();
                         }, err => {
-                            console.error('Location error:', err);
-                            app.showMessage('Location access denied. Session will start without location verification.', 'warning');
+                            console.warn('Location denied or failed:', err);
+                            app.showMessage('Location access denied. Starting session without location check.', 'warning');
                             finalizeSession();
                         }, { enableHighAccuracy: true, timeout: 10000 });
                     } else {
