@@ -195,6 +195,11 @@
             background: linear-gradient(135deg, #6b7280, #4b5563);
         }
         
+        .btn-sm {
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+        }
+        
         .form-group {
             margin-bottom: 1.5rem;
         }
@@ -706,6 +711,16 @@
                 display: none;
             }
         }
+        
+        .subject-name-group {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        
+        .subject-name-group input {
+            flex: 1;
+        }
     </style>
 </head>
 <body>
@@ -732,7 +747,12 @@
                     <div class="flex gap-4">
                         <div class="form-group flex-1">
                             <label for="subjectNameInput"><i class="fas fa-book"></i> Subject Name</label>
-                            <input type="text" id="subjectNameInput" placeholder="Enter subject name">
+                            <div class="subject-name-group">
+                                <input type="text" id="subjectNameInput" placeholder="Enter subject name">
+                                <button type="button" id="updateSubjectBtn" class="btn btn-sm">
+                                    <i class="fas fa-sync-alt"></i> Update
+                                </button>
+                            </div>
                         </div>
                         <div class="flex-1">
                             <p><strong><i class="fas fa-users"></i> Students:</strong> <span id="studentCount">0</span></p>
@@ -911,6 +931,16 @@
                     document.getElementById('locationSettings').classList.toggle('hidden', !this.checked);
                 });
                 
+                document.getElementById('updateSubjectBtn').addEventListener('click', () => {
+                    const newSubject = document.getElementById('subjectNameInput').value.trim();
+                    if (newSubject) {
+                        this.subjectName = newSubject;
+                        this.showMessage('Subject name updated!', 'success');
+                    } else {
+                        this.showMessage('Please enter a subject name', 'danger');
+                    }
+                });
+                
                 this.initVoiceCommands();
                 this.loadSessionHistory();
                 this.initializeApp();
@@ -987,7 +1017,7 @@
                         const subjectFromFile = file.name.replace(/\.[^/.]+$/, "").replace(/_/g, ' ');
                         document.getElementById('subjectNameInput').value = subjectFromFile;
                         
-                        if (file.name.includes('_Week') && file.name.includes('_to_')) {
+                        if (file.name.includes('_Week') || file.name.includes('Attendance')) {
                             const reader = new FileReader();
                             reader.onload = function(e) {
                                 try {
@@ -1072,6 +1102,14 @@
                     if (!app.subjectName || !week || !maxAttendees || !taEmail) {
                         app.showMessage('Please upload roster and fill required fields', 'danger');
                         return;
+                    }
+                    
+                    // Clear any existing session data
+                    if (app.sessionRef) {
+                        window.dbOff(app.sessionRef);
+                    }
+                    if (app.attendeesRef) {
+                        window.dbOff(app.attendeesRef);
                     }
                     
                     const finalizeSession = async () => {
@@ -1327,6 +1365,9 @@
                     this.currentSession.active = false;
                     this.saveSessionToLocal(this.currentSession);
                     this.updateSessionHistory(this.currentSession);
+                    
+                    // Reset form for new session
+                    document.getElementById('createSessionBtn').disabled = false;
                     
                 } catch (error) {
                     console.error('Error ending session:', error);
