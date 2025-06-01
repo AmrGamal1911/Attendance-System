@@ -9,7 +9,7 @@
     
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
-        import { getDatabase, ref, onValue, push, off, set } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
+        import { getDatabase, ref, onValue, push, off, set, get } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
 
         const firebaseConfig = {
             apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
@@ -29,6 +29,7 @@
         window.dbOnValue = onValue;
         window.dbPush = push;
         window.dbOff = off;
+        window.dbGet = get;
     </script>
     
     <style>
@@ -515,8 +516,7 @@
                         const studentLocation = await this.getFreshLocation();
                         const distance = this.calculateDistance(
                             studentLocation, 
-                            this.sessionData.classLocation,
-                            this.sessionData.locationDistance || 50
+                            this.sessionData.classLocation
                         );
                         
                         if (distance > this.sessionData.locationDistance) {
@@ -529,8 +529,12 @@
                     }
                 }
                 
-                const currentAttendees = this.sessionData.attendees || [];
-                if (currentAttendees.length >= this.sessionData.maxAttendees) {
+                // Get fresh attendee list from Firebase
+                const attendeeSnap = await window.dbGet(this.attendeesRef);
+                const attendees = attendeeSnap.val() || {};
+                const attendeeList = Object.values(attendees);
+                
+                if (attendeeList.length >= this.sessionData.maxAttendees) {
                     this.showMessage('This session is full', 'danger');
                     return;
                 }
@@ -543,7 +547,7 @@
                     return;
                 }
                 
-                if (currentAttendees.some(a => a.id.toUpperCase() === studentId)) {
+                if (attendeeList.some(a => a.id.toUpperCase() === studentId)) {
                     this.showMessage('Attendance already recorded for this student', 'danger');
                     return;
                 }
@@ -641,8 +645,8 @@
                 });
             },
 
-            calculateDistance: function(studentLoc, classLoc, maxDistance) {
-                if (!classLoc || !studentLoc) return 0;
+            calculateDistance: function(studentLoc, classLoc) {
+                if (!classLoc || !studentLoc) return Infinity;
                 
                 const R = 6371e3;
                 const φ1 = studentLoc.lat * Math.PI/180;
