@@ -16,7 +16,7 @@
             authDomain: "eelu-attendance.firebaseapp.com",
             databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
             projectId: "eelu-attendance",
-            storageBucket: "eelu-attendance.firebasestorage.app",
+            storageBucket: "eelu-attendance.appspot.com",
             messagingSenderId: "5132239076",
             appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
             measurementId: "G-D2WNX8RGRL"
@@ -241,7 +241,7 @@
         .alert-info {
             background: rgba(59, 130, 246, 0.1);
             color: #1d4ed8;
-            border-left-color: var(--info);
+            border-left-color: #3b82f6;
         }
         
         .hidden {
@@ -514,17 +514,26 @@
                 if (this.sessionData.useLocation) {
                     try {
                         const studentLocation = await this.getFreshLocation();
+                        if (!studentLocation) {
+                            throw new Error('Could not get location');
+                        }
+                        
+                        if (!this.sessionData.classLocation) {
+                            throw new Error('Class location not set');
+                        }
+                        
                         const distance = this.calculateDistance(
                             studentLocation, 
                             this.sessionData.classLocation
                         );
                         
                         if (distance > this.sessionData.locationDistance) {
-                            this.showMessage(`You must be within ${this.sessionData.locationDistance}m of the class`, 'danger');
+                            this.showMessage(`You must be within ${this.sessionData.locationDistance}m of the class (${Math.round(distance)}m away)`, 'danger');
                             return;
                         }
                     } catch (error) {
-                        this.showMessage('Location access required', 'danger');
+                        console.error('Location error:', error);
+                        this.showMessage('Location access required to submit attendance', 'danger');
                         return;
                     }
                 }
