@@ -1164,35 +1164,63 @@
                 const attendees = this.currentSession.attendees || [];
                 const currentWeek = this.currentSession.week;
                 const subjectName = this.currentSession.subject;
-                
+                const weekKey = `Week ${currentWeek}`;
+                const timeKey = `Timestamp Week ${currentWeek}`;
+
                 let reportData;
-                
+
                 if (this.previousAttendanceData?.length > 0) {
-                    reportData = this.previousAttendanceData.map((row) => {
-                        const attended = attendees.some(a => a.id === row['Student ID']);
+                    reportData = this.previousAttendanceData.map(prevRow => {
+                        const student = roster.find(s => s.id === prevRow['Student ID']);
+                        const matched = attendees.find(a => a.id === student?.id);
+
                         return {
-                            ...row,
-                            [`Week ${currentWeek}`]: attended ? 1 : 0,
-                            [`Timestamp Week ${currentWeek}`]: attended
-                                ? new Date(attendees.find(a => a.id === row['Student ID']).timestamp).toLocaleString()
-                                : 'N/A'
+                            ...prevRow,
+                            [weekKey]: matched ? 1 : 0,
+                            [timeKey]: matched ? new Date(matched.timestamp).toLocaleString() : 'N/A',
                         };
                     });
+
+                    // Add any new students (e.g. added to roster but not in Week 1 file)
+                    const existingIds = reportData.map(r => r['Student ID']);
+                    const missingStudents = roster.filter(s => !existingIds.includes(s.id));
+                    for (const student of missingStudents) {
+                        const matched = attendees.find(a => a.id === student.id);
+                        const newRow = {
+                            'Student ID': student.id,
+                            'Name': student.name,
+                            'Section': student.section || '',
+                            [weekKey]: matched ? 1 : 0,
+                            [timeKey]: matched ? new Date(matched.timestamp).toLocaleString() : 'N/A',
+                        };
+                        reportData.push(newRow);
+                    }
+
                 } else {
+                    // First-time report (no previous file)
                     reportData = roster.map(student => {
-                        const attended = attendees.some(a => a.id === student.id);
+                        const matched = attendees.find(a => a.id === student.id);
                         return {
                             'Student ID': student.id,
                             'Name': student.name,
                             'Section': student.section || '',
-                            [`Week ${currentWeek}`]: attended ? 1 : 0,
-                            [`Timestamp Week ${currentWeek}`]: attended 
-                                ? new Date(attendees.find(a => a.id === student.id).timestamp).toLocaleString()
-                                : 'N/A'
+                            [weekKey]: matched ? 1 : 0,
+                            [timeKey]: matched ? new Date(matched.timestamp).toLocaleString() : 'N/A',
                         };
                     });
                 }
-                
+
+                // Add total column
+                reportData = reportData.map(row => {
+                    const totalWeeks = Object.keys(row)
+                        .filter(k => k.startsWith('Week ') && !k.includes('Timestamp'))
+                        .map(k => Number(row[k]) || 0);
+                    return {
+                        ...row,
+                        total: totalWeeks.reduce((a, b) => a + b, 0),
+                    };
+                });
+
                 const ws = XLSX.utils.json_to_sheet(reportData);
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, "Attendance");
@@ -1204,7 +1232,7 @@
                 if (this.previousAttendanceData && this.previousAttendanceData.length > 0) {
                     const weekNumbers = [];
                     Object.keys(this.previousAttendanceData[0]).forEach(key => {
-                        if (key.startsWith('Week ') && !key.startsWith('Timestamp Week ')) {
+                        if (key.startsWith('Week ') && !key.includes('Timestamp')) {
                             weekNumbers.push(parseInt(key.replace('Week ', '')));
                         }
                     });
@@ -1243,8 +1271,7 @@
                     this.updateSessionHistory(this.currentSession);
                     
                     setTimeout(() => {
-                        document.getElementById('sessionStatus').innerHTML = '';
-                        document.getElementById('currentSessionCard').classList.add('hidden');
+                        document.getElementById('currentSessionCard').remove();
                     }, 3000);
                     
                 } catch (error) {
@@ -1277,8 +1304,7 @@
                     this.updateSessionHistory(this.currentSession);
                     
                     setTimeout(() => {
-                        document.getElementById('sessionStatus').innerHTML = '';
-                        document.getElementById('currentSessionCard').classList.add('hidden');
+                        document.getElementById('currentSessionCard').remove();
                     }, 3000);
                     
                 } catch (error) {
