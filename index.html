@@ -18,7 +18,7 @@
             authDomain: "eelu-attendance.firebaseapp.com",
             databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
             projectId: "eelu-attendance",
-            storageBucket: "eelu-attendance.firebasestorage.app",
+            storageBucket: "eelu-attendance.appspot.com",
             messagingSenderId: "5132239076",
             appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
             measurementId: "G-D2WNX8RGRL"
@@ -62,7 +62,7 @@
                     <div class="flex gap-4">
                         <div class="form-group flex-1">
                             <label for="subjectNameInput"><i class="fas fa-book"></i> Subject Name</label>
-                            <input type="text" id="subjectNameInput" placeholder="Enter subject name" required>
+                            <input type="text" id="subjectNameInput" placeholder="Enter subject name">
                         </div>
                         <div class="flex-1">
                             <p><strong><i class="fas fa-users"></i> Students:</strong> <span id="studentCount">0</span></p>
@@ -230,7 +230,6 @@
             sessionsHistory: [],
             recognition: null,
             deviceId: localStorage.getItem('deviceId') || Date.now().toString(),
-            attendanceInterval: null,
 
             init: function() {
                 localStorage.setItem('deviceId', this.deviceId);
@@ -487,24 +486,50 @@
                 const attendees = this.currentSession.attendees || [];
                 const currentWeek = this.currentSession.week;
                 const subjectName = this.currentSession.subject;
-                const weekKey = `Week ${currentWeek}`;
-                const timeKey = `Timestamp Week ${currentWeek}`;
 
-                let reportData;
+                // Get all weeks from previous data
+                let allWeeks = [];
+                if (this.previousAttendanceData?.length > 0) {
+                    Object.keys(this.previousAttendanceData[0]).forEach(key => {
+                        if (key.startsWith('Week ') && !key.includes('Timestamp')) {
+                            allWeeks.push(parseInt(key.replace('Week ', '')));
+                        }
+                    });
+                }
+                
+                // Include current week if not already present
+                if (!allWeeks.includes(currentWeek)) {
+                    allWeeks.push(currentWeek);
+                }
+                
+                // Sort weeks numerically
+                allWeeks.sort((a, b) => a - b);
 
+                let reportData = [];
+
+                // Process existing data if available
                 if (this.previousAttendanceData?.length > 0) {
                     reportData = this.previousAttendanceData.map(prevRow => {
                         const student = roster.find(s => s.id === prevRow['Student ID']);
                         const matched = attendees.find(a => a.id === student?.id);
 
-                        return {
-                            ...prevRow,
-                            [weekKey]: matched ? 1 : 0,
-                            [timeKey]: matched ? new Date(matched.timestamp).toLocaleString() : 'N/A',
-                        };
+                        // Create new row with all existing data
+                        const newRow = { ...prevRow };
+
+                        // Update current week's data
+                        newRow[`Week ${currentWeek}`] = matched ? 1 : 0;
+                        newRow[`Timestamp Week ${currentWeek}`] = matched ? 
+                            new Date(matched.timestamp).toLocaleString() : 'N/A';
+
+                        // Calculate total
+                        newRow.total = Object.keys(newRow)
+                            .filter(k => k.startsWith('Week ') && !k.includes('Timestamp'))
+                            .reduce((sum, k) => sum + (parseInt(newRow[k]) || 0), 0);
+
+                        return newRow;
                     });
 
-                    // Add any new students (e.g. added to roster but not in Week 1 file)
+                    // Add any new students not in previous data
                     const existingIds = reportData.map(r => r['Student ID']);
                     const missingStudents = roster.filter(s => !existingIds.includes(s.id));
                     for (const student of missingStudents) {
@@ -512,37 +537,42 @@
                         const newRow = {
                             'Student ID': student.id,
                             'Name': student.name,
-                            'Section': student.section || '',
-                            [weekKey]: matched ? 1 : 0,
-                            [timeKey]: matched ? new Date(matched.timestamp).toLocaleString() : 'N/A',
+                            'Section': student.section || ''
                         };
+
+                        // Initialize all weeks
+                        allWeeks.forEach(week => {
+                            newRow[`Week ${week}`] = 0;
+                            newRow[`Timestamp Week ${week}`] = 'N/A';
+                        });
+
+                        // Set current week
+                        newRow[`Week ${currentWeek}`] = matched ? 1 : 0;
+                        newRow[`Timestamp Week ${currentWeek}`] = matched ? 
+                            new Date(matched.timestamp).toLocaleString() : 'N/A';
+
+                        // Calculate total
+                        newRow.total = Object.keys(newRow)
+                            .filter(k => k.startsWith('Week ') && !k.includes('Timestamp'))
+                            .reduce((sum, k) => sum + (parseInt(newRow[k]) || 0), 0);
+
                         reportData.push(newRow);
                     }
-
                 } else {
-                    // First-time report (no previous file)
+                    // First-time report
                     reportData = roster.map(student => {
                         const matched = attendees.find(a => a.id === student.id);
                         return {
                             'Student ID': student.id,
                             'Name': student.name,
                             'Section': student.section || '',
-                            [weekKey]: matched ? 1 : 0,
-                            [timeKey]: matched ? new Date(matched.timestamp).toLocaleString() : 'N/A',
+                            [`Week ${currentWeek}`]: matched ? 1 : 0,
+                            [`Timestamp Week ${currentWeek}`]: matched ? 
+                                new Date(matched.timestamp).toLocaleString() : 'N/A',
+                            'total': matched ? 1 : 0
                         };
                     });
                 }
-
-                // Add total column
-                reportData = reportData.map(row => {
-                    const totalWeeks = Object.keys(row)
-                        .filter(k => k.startsWith('Week ') && !k.includes('Timestamp'))
-                        .map(k => Number(row[k]) || 0);
-                    return {
-                        ...row,
-                        total: totalWeeks.reduce((a, b) => a + b, 0),
-                    };
-                });
 
                 const ws = XLSX.utils.json_to_sheet(reportData);
                 const wb = XLSX.utils.book_new();
@@ -593,6 +623,7 @@
                     this.saveSessionToLocal(this.currentSession);
                     this.updateSessionHistory(this.currentSession);
                     
+                    // Remove the dashboard completely
                     document.getElementById('currentSessionCard').remove();
                     
                 } catch (error) {
@@ -624,6 +655,7 @@
                     this.saveSessionToLocal(this.currentSession);
                     this.updateSessionHistory(this.currentSession);
                     
+                    // Remove the dashboard completely
                     document.getElementById('currentSessionCard').remove();
                     
                 } catch (error) {
