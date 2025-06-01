@@ -528,7 +528,7 @@
                         );
                         
                         if (distance > this.sessionData.locationDistance) {
-                            this.showMessage(`You must be within ${this.sessionData.locationDistance}m of the class (currently ${Math.round(distance)}m away)`, 'danger');
+                            this.showMessage(`You must be within ${this.sessionData.locationDistance}m of the class (${Math.round(distance)}m away)`, 'danger');
                             return;
                         }
                     } catch (error) {
