@@ -195,11 +195,6 @@
             background: linear-gradient(135deg, #6b7280, #4b5563);
         }
         
-        .btn-sm {
-            padding: 0.5rem 1rem;
-            font-size: 0.875rem;
-        }
-        
         .form-group {
             margin-bottom: 1.5rem;
         }
@@ -711,15 +706,14 @@
                 display: none;
             }
         }
-        
-        .subject-name-group {
-            display: flex;
-            gap: 0.5rem;
-            align-items: center;
+
+        /* New styles for multiple sessions */
+        .session-card {
+            margin-bottom: 2rem;
         }
-        
-        .subject-name-group input {
-            flex: 1;
+
+        .session-card:last-child {
+            margin-bottom: 0;
         }
     </style>
 </head>
@@ -747,15 +741,11 @@
                     <div class="flex gap-4">
                         <div class="form-group flex-1">
                             <label for="subjectNameInput"><i class="fas fa-book"></i> Subject Name</label>
-                            <div class="subject-name-group">
-                                <input type="text" id="subjectNameInput" placeholder="Enter subject name">
-                                <button type="button" id="updateSubjectBtn" class="btn btn-sm">
-                                    <i class="fas fa-sync-alt"></i> Update
-                                </button>
-                            </div>
+                            <input type="text" id="subjectNameInput" placeholder="Enter subject name">
                         </div>
                         <div class="flex-1">
                             <p><strong><i class="fas fa-users"></i> Students:</strong> <span id="studentCount">0</span></p>
+                            <p><strong><i class="fas fa-calendar-week"></i> Detected Weeks:</strong> <span id="weekCount">None</span></p>
                         </div>
                     </div>
                 </div>
@@ -811,78 +801,8 @@
             </form>
         </div>
 
-        <!-- Current Session Section -->
-        <div class="card hidden" id="currentSessionCard">
-            <div class="session-status session-active" id="sessionStatus">
-                <i class="fas fa-broadcast-tower"></i> 
-                <span>Session Active & Live</span>
-                <div class="sync-status">
-                    <div class="sync-indicator" id="syncIndicator"></div>
-                    <span id="syncStatus">Connecting...</span>
-                </div>
-            </div>
-            
-            <h2><i class="fas fa-users-cog"></i> Live Session Dashboard</h2>
-            
-            <div class="flex gap-4 mb-4">
-                <div class="flex-1">
-                    <label><strong><i class="fas fa-graduation-cap"></i> Subject:</strong></label>
-                    <p id="currentSubject">-</p>
-                </div>
-                <div class="flex-1">
-                    <label><strong><i class="fas fa-calendar"></i> Week:</strong></label>
-                    <p id="currentWeek">-</p>
-                </div>
-            </div>
-            
-            <div class="progress-container">
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progressFill" style="width: 0%"></div>
-                </div>
-                <div class="progress-text">
-                    <span><strong>Attendance Progress</strong></span>
-                    <span><span id="attendedCount">0</span> / <span id="maxAttendeesDisplay">0</span> Students</span>
-                </div>
-            </div>
-            
-            <div class="text-center mb-4">
-                <div id="qrcode"></div>
-                <button onclick="app.openFullscreenQR()" class="btn btn-secondary mt-2">
-                    <i class="fas fa-expand"></i> Fullscreen QR
-                </button>
-                <p style="color: #6b7280; margin-top: 1rem;">Students can scan this QR code to mark attendance</p>
-            </div>
-            
-            <div class="form-group session-url">
-                <label><strong><i class="fas fa-link"></i> Student Access Link:</strong></label>
-                <div class="input-group">
-                    <input type="text" id="sessionUrl" readonly>
-                    <button type="button" class="btn btn-secondary copy-btn" onclick="app.copyToClipboard()">
-                        <i class="fas fa-copy"></i>
-                    </button>
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label><strong><i class="fas fa-clock"></i> Live Attendance Feed:</strong></label>
-                <div id="attendanceList" class="attendance-list">
-                    <div style="padding: 2rem; text-align: center; color: #6b7280;">
-                        <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;"></i>
-                        <p>Waiting for students to join...</p>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="flex gap-4 mt-4">
-                <button id="exportBtn" class="btn btn-success flex-1">
-                    <i class="fas fa-download"></i> Export Report
-                </button>
-                
-                <button id="endSessionBtn" class="btn btn-danger flex-1">
-                    <i class="fas fa-stop-circle"></i> End Session
-                </button>
-            </div>
-        </div>
+        <!-- Sessions Container -->
+        <div id="sessionsContainer"></div>
 
         <!-- Session History Section -->
         <div class="card session-history hidden" id="sessionHistoryCard">
@@ -912,33 +832,21 @@
     <script>
         const app = {
             rosterData: [],
-            currentSession: null,
+            currentSessions: [],
             subjectName: '',
-            sessionRef: null,
-            attendeesRef: null,
             previousAttendanceData: null,
             sessionsHistory: [],
             recognition: null,
             deviceId: localStorage.getItem('deviceId') || Date.now().toString(),
+            existingWeeks: [],
+            maxExistingWeek: 0,
 
             init: function() {
                 localStorage.setItem('deviceId', this.deviceId);
-                
-                // Initialize drag and drop
                 this.setupDragAndDrop();
                 
                 document.getElementById('useLocation').addEventListener('change', function() {
                     document.getElementById('locationSettings').classList.toggle('hidden', !this.checked);
-                });
-                
-                document.getElementById('updateSubjectBtn').addEventListener('click', () => {
-                    const newSubject = document.getElementById('subjectNameInput').value.trim();
-                    if (newSubject) {
-                        this.subjectName = newSubject;
-                        this.showMessage('Subject name updated!', 'success');
-                    } else {
-                        this.showMessage('Please enter a subject name', 'danger');
-                    }
                 });
                 
                 this.initVoiceCommands();
@@ -951,7 +859,6 @@
                 const fileInput = document.getElementById('roster');
                 const fileNameSpan = document.getElementById('fileName');
 
-                // Prevent default drag behaviors
                 ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
                     fileUpload.addEventListener(eventName, preventDefaults, false);
                 });
@@ -961,7 +868,6 @@
                     e.stopPropagation();
                 }
 
-                // Highlight drop area when item is dragged over it
                 ['dragenter', 'dragover'].forEach(eventName => {
                     fileUpload.addEventListener(eventName, highlight, false);
                 });
@@ -980,7 +886,6 @@
                     fileUpload.style.borderColor = '#d1d5db';
                 }
 
-                // Handle dropped files
                 fileUpload.addEventListener('drop', handleDrop, false);
 
                 function handleDrop(e) {
@@ -991,7 +896,6 @@
                         fileInput.files = files;
                         fileNameSpan.textContent = files[0].name;
                         
-                        // Extract subject name from filename (without extension)
                         const fileName = files[0].name;
                         const subjectFromFile = fileName.replace(/\.[^/.]+$/, "").replace(/_/g, ' ');
                         document.getElementById('subjectNameInput').value = subjectFromFile;
@@ -1005,6 +909,7 @@
                 const uploadForm = document.getElementById('uploadForm');
                 const rosterInfoDiv = document.getElementById('rosterInfo');
                 const studentCountSpan = document.getElementById('studentCount');
+                const weekCountSpan = document.getElementById('weekCount');
                 const sessionForm = document.getElementById('sessionForm');
                 const createSessionBtn = document.getElementById('createSessionBtn');
                 
@@ -1013,27 +918,8 @@
                         const file = this.files[0];
                         fileNameSpan.textContent = file.name;
                         
-                        // Extract subject name from filename (without extension)
                         const subjectFromFile = file.name.replace(/\.[^/.]+$/, "").replace(/_/g, ' ');
                         document.getElementById('subjectNameInput').value = subjectFromFile;
-                        
-                        if (file.name.includes('_Week') || file.name.includes('Attendance')) {
-                            const reader = new FileReader();
-                            reader.onload = function(e) {
-                                try {
-                                    const data = new Uint8Array(e.target.result);
-                                    const workbook = XLSX.read(data, { type: 'array' });
-                                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-                                    app.previousAttendanceData = XLSX.utils.sheet_to_json(firstSheet);
-                                } catch (error) {
-                                    console.error('Error reading previous attendance file:', error);
-                                    app.previousAttendanceData = null;
-                                }
-                            };
-                            reader.readAsArrayBuffer(file);
-                        } else {
-                            app.previousAttendanceData = null;
-                        }
                     } else {
                         fileNameSpan.textContent = 'No file chosen';
                     }
@@ -1056,11 +942,35 @@
                             const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
                             const jsonData = XLSX.utils.sheet_to_json(firstSheet);
                             
+                            // Detect week columns with flexible matching
+                            const weekColumns = {};
+                            let maxWeek = 0;
+                            
+                            if (jsonData.length > 0) {
+                                Object.keys(jsonData[0]).forEach(key => {
+                                    // Case-insensitive matching for various week formats
+                                    const weekMatch = key.match(/(?:week|session|attendance)[\s_]*(\d+)/i);
+                                    if (weekMatch) {
+                                        const weekNum = parseInt(weekMatch[1]);
+                                        weekColumns[weekNum] = key; // Store original column name
+                                        if (weekNum > maxWeek) maxWeek = weekNum;
+                                    }
+                                });
+                            }
+                            
+                            // Process student data
                             app.rosterData = jsonData.map(row => {
                                 const id = String(row['Student ID'] || row['ID'] || row['id'] || row['StudentID'] || row['student_id'] || '').trim();
                                 const name = (row['Name'] || row['Student Name'] || row['name'] || row['StudentName'] || row['student_name'] || '').trim();
                                 const section = (row['Section'] || row['Class'] || row['section'] || row['class'] || '').trim();
-                                return { id, name, section };
+                                
+                                // Preserve existing week data if present
+                                const weekData = {};
+                                Object.keys(weekColumns).forEach(weekNum => {
+                                    weekData[weekNum] = row[weekColumns[weekNum]];
+                                });
+                                
+                                return { id, name, section, weekData };
                             }).filter(student => student.id && student.name);
                             
                             if (app.rosterData.length === 0) {
@@ -1068,11 +978,17 @@
                                 return;
                             }
                             
-                            // Get subject name from input field (preferred) or fallback to filename
-                            const subjectInput = document.getElementById('subjectNameInput').value.trim();
-                            app.subjectName = subjectInput || file.name.replace(/\.(xlsx|csv)$/i, '').replace(/_/g, ' ');
+                            // Set subject name
+                            app.subjectName = document.getElementById('subjectNameInput').value || 
+                                             file.name.replace(/\.(xlsx|csv)$/i, '').replace(/_/g, ' ');
+                            
+                            // Store week information
+                            app.existingWeeks = Object.keys(weekColumns).map(Number).sort((a, b) => a - b);
+                            app.maxExistingWeek = maxWeek;
                             
                             studentCountSpan.textContent = app.rosterData.length;
+                            weekCountSpan.textContent = app.existingWeeks.length > 0 ? 
+                                app.existingWeeks.join(', ') : 'None (New Session)';
                             rosterInfoDiv.classList.remove('hidden');
                             createSessionBtn.disabled = false;
                             
@@ -1104,20 +1020,10 @@
                         return;
                     }
                     
-                    // Clear any existing session data
-                    if (app.sessionRef) {
-                        window.dbOff(app.sessionRef);
-                    }
-                    if (app.attendeesRef) {
-                        window.dbOff(app.attendeesRef);
-                    }
-                    
                     const finalizeSession = async () => {
                         try {
-                            app.updateSyncStatus('connecting');
-                            
                             const sessionId = 'session_' + Date.now();
-                            app.currentSession = {
+                            const newSession = {
                                 id: sessionId,
                                 subject: app.subjectName,
                                 week,
@@ -1130,42 +1036,50 @@
                                 attendeeCount: 0,
                                 useLocation,
                                 locationDistance,
-                                deviceId: app.deviceId
+                                deviceId: app.deviceId,
+                                existingWeeks: [...app.existingWeeks],
+                                maxExistingWeek: app.maxExistingWeek
                             };
                             
                             try {
-                                app.sessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
-                                await window.dbSet(app.sessionRef, app.currentSession);
-                                app.saveSessionToLocal(app.currentSession);
+                                const sessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
+                                await window.dbSet(sessionRef, newSession);
+                                app.saveSessionToLocal(newSession);
                                 
-                                app.attendeesRef = window.dbRef(window.database, `sessions/${sessionId}/attendees`);
-                                window.dbOnValue(app.attendeesRef, (snapshot) => {
+                                const attendeesRef = window.dbRef(window.database, `sessions/${sessionId}/attendees`);
+                                
+                                const sessionData = {
+                                    ...newSession,
+                                    sessionRef,
+                                    attendeesRef,
+                                    syncStatus: 'connecting'
+                                };
+                                
+                                app.currentSessions.push(sessionData);
+                                app.displaySession(sessionData);
+                                
+                                window.dbOnValue(attendeesRef, (snapshot) => {
                                     const attendees = snapshot.val() || {};
                                     const attendeeList = Object.values(attendees);
-                                    app.currentSession.attendees = attendeeList;
-                                    app.currentSession.attendeeCount = attendeeList.length;
+                                    sessionData.attendees = attendeeList;
+                                    sessionData.attendeeCount = attendeeList.length;
                                     
-                                    document.getElementById('attendedCount').textContent = attendeeList.length;
-                                    document.getElementById('progressFill').style.width = `${(attendeeList.length / maxAttendees) * 100}%`;
-                                    app.updateAttendanceList(attendeeList);
+                                    app.updateSessionDisplay(sessionData);
                                     
-                                    if (attendeeList.length >= maxAttendees && app.currentSession.active) {
-                                        app.endSessionAutomatically();
+                                    if (attendeeList.length >= maxAttendees && sessionData.active) {
+                                        app.endSessionAutomatically(sessionData);
                                     }
                                     
-                                    app.saveSessionToLocal(app.currentSession);
+                                    app.saveSessionToLocal(sessionData);
                                 });
                                 
-                                app.displayCurrentSession();
-                                app.updateSyncStatus('connected');
                                 app.showMessage('Attendance session started successfully!', 'success');
-                                app.addToSessionHistory(app.currentSession);
+                                app.addToSessionHistory(sessionData);
                                 document.getElementById('sessionHistoryCard').classList.remove('hidden');
                                 
                             } catch (error) {
                                 console.error('Error creating session:', error);
                                 app.showMessage('Failed to create session. Please try again.', 'danger');
-                                app.updateSyncStatus('error');
                             }
                         } catch (error) {
                             console.error('Error:', error);
@@ -1180,221 +1094,119 @@
                             };
                             finalizeSession();
                         }, err => {
-                            console.warn('Location denied or failed:', err);
-                            app.showMessage('Location access denied. Starting session without location check.', 'warning');
+                            console.error('Location error:', err);
+                            app.showMessage('Location access denied. Session will start without location verification.', 'warning');
                             finalizeSession();
                         }, { enableHighAccuracy: true, timeout: 10000 });
                     } else {
                         finalizeSession();
                     }
                 });
-                
-                document.getElementById('exportBtn').addEventListener('click', function() {
-                    if (!app.currentSession) return;
-                    app.exportAttendanceReport();
-                });
-                
-                document.getElementById('endSessionBtn').addEventListener('click', function() {
-                    app.endSession();
-                });
             },
 
-            exportAttendanceReport: function() {
-                const roster = this.currentSession.roster || [];
-                const attendees = this.currentSession.attendees || [];
-                const currentWeek = parseInt(this.currentSession.week);
-                const subjectName = this.currentSession.subject;
-
-                // Get all week columns from previous data (if exists)
-                const weekColumns = {};
-                if (this.previousAttendanceData?.length > 0) {
-                    Object.keys(this.previousAttendanceData[0]).forEach(key => {
-                        if (key.startsWith('Week ') && !key.includes('Timestamp')) {
-                            const weekNum = parseInt(key.replace('Week ', ''));
-                            weekColumns[weekNum] = key;
-                        }
-                    });
-                }
-
-                // Add current week if not already present
-                if (!weekColumns[currentWeek]) {
-                    weekColumns[currentWeek] = `Week ${currentWeek}`;
-                }
-
-                // Sort weeks numerically
-                const sortedWeeks = Object.keys(weekColumns).map(Number).sort((a, b) => a - b);
-
-                let reportData = [];
-
-                // If we have previous data, merge it with new data
-                if (this.previousAttendanceData?.length > 0) {
-                    reportData = this.previousAttendanceData.map(prevRow => {
-                        const student = roster.find(s => s.id === prevRow['Student ID']);
-                        const matched = attendees.find(a => a.id === student?.id);
-
-                        const newRow = { ...prevRow };
-
-                        // Update current week attendance
-                        newRow[`Week ${currentWeek}`] = matched ? 1 : 0;
-                        newRow[`Timestamp Week ${currentWeek}`] = matched ? 
-                            new Date(matched.timestamp).toLocaleString() : 'N/A';
-
-                        return newRow;
-                    });
-
-                    // Add any new students not in previous data
-                    const existingIds = reportData.map(r => r['Student ID']);
-                    const missingStudents = roster.filter(s => !existingIds.includes(s.id));
-                    
-                    for (const student of missingStudents) {
-                        const matched = attendees.find(a => a.id === student.id);
-                        const newRow = {
-                            'Student ID': student.id,
-                            'Name': student.name,
-                            'Section': student.section || ''
-                        };
-
-                        // Initialize all week columns
-                        sortedWeeks.forEach(week => {
-                            const weekKey = `Week ${week}`;
-                            newRow[weekKey] = (week === currentWeek && matched) ? 1 : 0;
-                            
-                            const timeKey = `Timestamp Week ${week}`;
-                            newRow[timeKey] = (week === currentWeek && matched) ? 
-                                new Date(matched.timestamp).toLocaleString() : 'N/A';
-                        });
-
-                        reportData.push(newRow);
-                    }
-                } else {
-                    // First-time report (no previous file)
-                    reportData = roster.map(student => {
-                        const matched = attendees.find(a => a.id === student.id);
-                        const newRow = {
-                            'Student ID': student.id,
-                            'Name': student.name,
-                            'Section': student.section || '',
-                            [`Week ${currentWeek}`]: matched ? 1 : 0,
-                            [`Timestamp Week ${currentWeek}`]: matched ? 
-                                new Date(matched.timestamp).toLocaleString() : 'N/A'
-                        };
-                        return newRow;
-                    });
-                }
-
-                // Calculate totals for each student
-                reportData = reportData.map(row => {
-                    const total = sortedWeeks.reduce((sum, week) => {
-                        const weekKey = `Week ${week}`;
-                        return sum + (Number(row[weekKey]) || 0);
-                    }, 0);
-                    
-                    return {
-                        ...row,
-                        'Total Attendance': total,
-                        'Attendance Percentage': (total / sortedWeeks.length * 100).toFixed(2) + '%'
-                    };
-                });
-
-                const ws = XLSX.utils.json_to_sheet(reportData);
-                const wb = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(wb, ws, "Attendance");
+            displaySession: function(sessionData) {
+                const sessionsContainer = document.getElementById('sessionsContainer');
+                const sessionId = sessionData.id;
                 
-                const today = new Date();
-                const dateStr = today.toISOString().split('T')[0];
-                let fileName;
-                
-                if (sortedWeeks.length > 1) {
-                    const minWeek = Math.min(...sortedWeeks);
-                    const maxWeek = Math.max(...sortedWeeks);
-                    fileName = `${subjectName} Attendance Weeks ${minWeek}-${maxWeek} ${dateStr}.xlsx`;
-                } else {
-                    fileName = `${subjectName} Attendance Week ${currentWeek} ${dateStr}.xlsx`;
-                }
-                
-                fileName = fileName.replace(/[^a-zA-Z0-9\s\.\-_]/g, '').replace(/\s+/g, ' ');
-                XLSX.writeFile(wb, fileName);
-            },
+                const sessionCard = document.createElement('div');
+                sessionCard.className = 'card session-card';
+                sessionCard.id = `sessionCard_${sessionId}`;
+                sessionCard.innerHTML = `
+                    <div class="session-status session-active" id="sessionStatus_${sessionId}">
+                        <i class="fas fa-broadcast-tower"></i> 
+                        <span>Session Active & Live</span>
+                        <div class="sync-status">
+                            <div class="sync-indicator" id="syncIndicator_${sessionId}"></div>
+                            <span id="syncStatus_${sessionId}">Connecting...</span>
+                        </div>
+                    </div>
+                    
+                    <h2><i class="fas fa-users-cog"></i> Live Session Dashboard</h2>
+                    
+                    <div class="flex gap-4 mb-4">
+                        <div class="flex-1">
+                            <label><strong><i class="fas fa-graduation-cap"></i> Subject:</strong></label>
+                            <p id="currentSubject_${sessionId}">${sessionData.subject}</p>
+                        </div>
+                        <div class="flex-1">
+                            <label><strong><i class="fas fa-calendar"></i> Week:</strong></label>
+                            <p id="currentWeek_${sessionId}">${sessionData.week}</p>
+                        </div>
+                    </div>
+                    
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill_${sessionId}" style="width: 0%"></div>
+                        </div>
+                        <div class="progress-text">
+                            <span><strong>Attendance Progress</strong></span>
+                            <span><span id="attendedCount_${sessionId}">0</span> / <span id="maxAttendeesDisplay_${sessionId}">${sessionData.maxAttendees}</span> Students</span>
+                        </div>
+                    </div>
+                    
+                    <div class="text-center mb-4">
+                        <div id="qrcode_${sessionId}"></div>
+                        <button onclick="app.openFullscreenQR('${sessionId}')" class="btn btn-secondary mt-2">
+                            <i class="fas fa-expand"></i> Fullscreen QR
+                        </button>
+                        <p style="color: #6b7280; margin-top: 1rem;">Students can scan this QR code to mark attendance</p>
+                    </div>
+                    
+                    <div class="form-group session-url">
+                        <label><strong><i class="fas fa-link"></i> Student Access Link:</strong></label>
+                        <div class="input-group">
+                            <input type="text" id="sessionUrl_${sessionId}" readonly>
+                            <button type="button" class="btn btn-secondary copy-btn" onclick="app.copyToClipboard('${sessionId}')">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
 
-            endSessionAutomatically: async function() {
-                try {
-                    await window.dbSet(window.dbRef(window.database, `sessions/${this.currentSession.id}/active`), false);
+                    <div class="form-group">
+                        <label><strong><i class="fas fa-clock"></i> Live Attendance Feed:</strong></label>
+                        <div id="attendanceList_${sessionId}" class="attendance-list">
+                            <div style="padding: 2rem; text-align: center; color: #6b7280;">
+                                <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;"></i>
+                                <p>Waiting for students to join...</p>
+                            </div>
+                        </div>
+                    </div>
                     
-                    const currentSessionCard = document.getElementById('currentSessionCard');
-                    if (currentSessionCard) {
-                        currentSessionCard.remove();
-                    }
-                    
-                    this.showMessage('Session automatically ended - max attendance reached.', 'success');
-                    this.updateSyncStatus('offline');
-                    
-                    if (this.attendeesRef) {
-                        window.dbOff(this.attendeesRef);
-                    }
-                    
-                    this.currentSession.active = false;
-                    this.saveSessionToLocal(this.currentSession);
-                    this.updateSessionHistory(this.currentSession);
-                    
-                } catch (error) {
-                    console.error('Error auto-ending session:', error);
-                }
-            },
-
-            endSession: async function() {
-                if (!this.currentSession || !this.sessionRef) {
-                    this.showMessage('No active session to end', 'danger');
-                    return;
-                }
+                    <div class="flex gap-4 mt-4">
+                        <button onclick="app.exportAttendanceReport('${sessionId}')" class="btn btn-success flex-1">
+                            <i class="fas fa-download"></i> Export Report
+                        </button>
+                        
+                        <button onclick="app.endSession('${sessionId}')" class="btn btn-danger flex-1">
+                            <i class="fas fa-stop-circle"></i> End Session
+                        </button>
+                    </div>
+                `;
                 
-                try {
-                    await window.dbSet(window.dbRef(window.database, `sessions/${this.currentSession.id}/active`), false);
-                    
-                    const currentSessionCard = document.getElementById('currentSessionCard');
-                    if (currentSessionCard) {
-                        currentSessionCard.remove();
-                    }
-                    
-                    if (this.attendeesRef) {
-                        window.dbOff(this.attendeesRef);
-                    }
-                    
-                    this.showMessage('Session ended successfully.', 'success');
-                    this.updateSyncStatus('offline');
-                    
-                    this.currentSession.active = false;
-                    this.saveSessionToLocal(this.currentSession);
-                    this.updateSessionHistory(this.currentSession);
-                    
-                    // Reset form for new session
-                    document.getElementById('createSessionBtn').disabled = false;
-                    
-                } catch (error) {
-                    console.error('Error ending session:', error);
-                    this.showMessage('Failed to end session', 'danger');
-                }
-            },
-
-            displayCurrentSession: function() {
-                if (!this.currentSession) return;
+                sessionsContainer.appendChild(sessionCard);
                 
-                document.getElementById('currentSubject').textContent = this.currentSession.subject;
-                document.getElementById('currentWeek').textContent = this.currentSession.week;
-                document.getElementById('attendedCount').textContent = this.currentSession.attendeeCount || 0;
-                document.getElementById('maxAttendeesDisplay').textContent = this.currentSession.maxAttendees;
-                
-                const formUrl = `${window.location.origin}/form.html?session=${this.currentSession.id}`;
+                const formUrl = `${window.location.origin}/form.html?session=${sessionId}`;
                 const qr = qrcode(0, 'L');
                 qr.addData(formUrl);
                 qr.make();
-                document.getElementById('qrcode').innerHTML = qr.createImgTag(5);
+                document.getElementById(`qrcode_${sessionId}`).innerHTML = qr.createImgTag(5);
                 
-                document.getElementById('sessionUrl').value = formUrl;
-                document.getElementById('currentSessionCard').classList.remove('hidden');
+                document.getElementById(`sessionUrl_${sessionId}`).value = formUrl;
             },
 
-            updateAttendanceList: function(attendees) {
-                const attendanceListDiv = document.getElementById('attendanceList');
+            updateSessionDisplay: function(sessionData) {
+                const sessionId = sessionData.id;
+                document.getElementById(`attendedCount_${sessionId}`).textContent = sessionData.attendeeCount || 0;
+                document.getElementById(`progressFill_${sessionId}`).style.width = 
+                    `${(sessionData.attendeeCount / sessionData.maxAttendees) * 100}%`;
+                
+                this.updateAttendanceList(sessionData);
+            },
+
+            updateAttendanceList: function(sessionData) {
+                const sessionId = sessionData.id;
+                const attendanceListDiv = document.getElementById(`attendanceList_${sessionId}`);
+                const attendees = sessionData.attendees || [];
                 
                 if (!attendees || attendees.length === 0) {
                     attendanceListDiv.innerHTML = `
@@ -1423,46 +1235,165 @@
                 attendanceListDiv.innerHTML = attendeesHtml;
             },
 
-            updateSyncStatus: function(status) {
-                const indicator = document.getElementById('syncIndicator');
-                const statusText = document.getElementById('syncStatus');
+            exportAttendanceReport: function(sessionId) {
+                const session = this.currentSessions.find(s => s.id === sessionId);
+                if (!session) return;
                 
-                indicator.className = 'sync-indicator';
+                const roster = session.roster || [];
+                const attendees = session.attendees || [];
+                const currentWeek = parseInt(session.week);
+                const subjectName = session.subject;
+                const allWeeks = [...session.existingWeeks, currentWeek].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
                 
-                switch (status) {
-                    case 'connected':
-                        indicator.classList.add('connected');
-                        statusText.textContent = 'Online';
-                        break;
-                    case 'connecting':
-                        indicator.classList.add('connecting');
-                        statusText.textContent = 'Connecting...';
-                        break;
-                    case 'offline':
-                        statusText.textContent = 'Offline';
-                        break;
-                    case 'error':
-                        statusText.textContent = 'Connection Error';
-                        break;
+                let reportData = [];
+                
+                if (session.existingWeeks?.length > 0) {
+                    // Merge with existing data
+                    reportData = roster.map(student => {
+                        const matched = attendees.find(a => a.id === student.id);
+                        const newRow = {
+                            'Student ID': student.id,
+                            'Name': student.name,
+                            'Section': student.section || ''
+                        };
+                        
+                        // Copy existing week data
+                        allWeeks.forEach(week => {
+                            if (week === currentWeek) {
+                                newRow[`Week ${week}`] = matched ? 1 : 0;
+                                newRow[`Timestamp Week ${week}`] = matched ? 
+                                    new Date(matched.timestamp).toLocaleString() : 'N/A';
+                            } else if (student.weekData?.[week] !== undefined) {
+                                newRow[`Week ${week}`] = student.weekData[week];
+                                newRow[`Timestamp Week ${week}`] = student[`Timestamp Week ${week}`] || 'N/A';
+                            }
+                        });
+                        
+                        return newRow;
+                    });
+                } else {
+                    // First-time report
+                    reportData = roster.map(student => {
+                        const matched = attendees.find(a => a.id === student.id);
+                        return {
+                            'Student ID': student.id,
+                            'Name': student.name,
+                            'Section': student.section || '',
+                            [`Week ${currentWeek}`]: matched ? 1 : 0,
+                            [`Timestamp Week ${currentWeek}`]: matched ? 
+                                new Date(matched.timestamp).toLocaleString() : 'N/A'
+                        };
+                    });
+                }
+                
+                // Calculate totals
+                reportData = reportData.map(row => {
+                    const total = allWeeks.reduce((sum, week) => {
+                        return sum + (Number(row[`Week ${week}`]) || 0);
+                    }, 0);
+                    
+                    return {
+                        ...row,
+                        'Total Attendance': total,
+                        'Attendance Percentage': (total / allWeeks.length * 100).toFixed(2) + '%'
+                    };
+                });
+                
+                // Generate Excel file
+                const ws = XLSX.utils.json_to_sheet(reportData);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Attendance");
+                
+                const today = new Date();
+                const dateStr = today.toISOString().split('T')[0];
+                let fileName;
+                
+                if (allWeeks.length > 1) {
+                    fileName = `${subjectName} Attendance from Week ${Math.min(...allWeeks)} to ${Math.max(...allWeeks)} ${dateStr}.xlsx`;
+                } else {
+                    fileName = `${subjectName} Attendance for Week ${currentWeek} ${dateStr}.xlsx`;
+                }
+                
+                fileName = fileName.replace(/[^a-zA-Z0-9\s\.\-_]/g, '').replace(/\s+/g, ' ');
+                XLSX.writeFile(wb, fileName);
+            },
+
+            endSessionAutomatically: async function(sessionData) {
+                try {
+                    await window.dbSet(window.dbRef(window.database, `sessions/${sessionData.id}/active`), false);
+                    
+                    const sessionCard = document.getElementById(`sessionCard_${sessionData.id}`);
+                    if (sessionCard) {
+                        const statusDiv = document.getElementById(`sessionStatus_${sessionData.id}`);
+                        if (statusDiv) {
+                            statusDiv.className = 'session-status session-inactive';
+                            statusDiv.innerHTML = `
+                                <i class="fas fa-calendar-times"></i>
+                                <span>Session Ended Automatically (Max Attendance Reached)</span>
+                            `;
+                        }
+                    }
+                    
+                    this.showMessage('Session automatically ended - max attendance reached.', 'success');
+                    
+                    if (sessionData.attendeesRef) {
+                        window.dbOff(sessionData.attendeesRef);
+                    }
+                    
+                    sessionData.active = false;
+                    this.saveSessionToLocal(sessionData);
+                    this.updateSessionHistory(sessionData);
+                    
+                } catch (error) {
+                    console.error('Error auto-ending session:', error);
                 }
             },
 
-            showMessage: function(text, type) {
-                const messageDiv = document.getElementById('message');
-                messageDiv.textContent = text;
-                messageDiv.className = `alert alert-${type}`;
-                messageDiv.classList.remove('hidden');
+            endSession: async function(sessionId) {
+                const sessionIndex = this.currentSessions.findIndex(s => s.id === sessionId);
+                if (sessionIndex === -1) {
+                    this.showMessage('Session not found', 'danger');
+                    return;
+                }
                 
-                setTimeout(() => {
-                    messageDiv.classList.add('hidden');
-                }, 5000);
+                const sessionData = this.currentSessions[sessionIndex];
+                
+                try {
+                    await window.dbSet(window.dbRef(window.database, `sessions/${sessionId}/active`), false);
+                    
+                    const sessionCard = document.getElementById(`sessionCard_${sessionId}`);
+                    if (sessionCard) {
+                        const statusDiv = document.getElementById(`sessionStatus_${sessionId}`);
+                        if (statusDiv) {
+                            statusDiv.className = 'session-status session-inactive';
+                            statusDiv.innerHTML = `
+                                <i class="fas fa-calendar-times"></i>
+                                <span>Session Ended Manually</span>
+                            `;
+                        }
+                    }
+                    
+                    if (sessionData.attendeesRef) {
+                        window.dbOff(sessionData.attendeesRef);
+                    }
+                    
+                    this.showMessage('Session ended successfully.', 'success');
+                    
+                    sessionData.active = false;
+                    this.saveSessionToLocal(sessionData);
+                    this.updateSessionHistory(sessionData);
+                    
+                } catch (error) {
+                    console.error('Error ending session:', error);
+                    this.showMessage('Failed to end session', 'danger');
+                }
             },
 
-            openFullscreenQR: function() {
+            openFullscreenQR: function(sessionId) {
                 const modal = document.getElementById('qrModal');
                 const qrContainer = document.getElementById('fullscreenQr');
                 
-                const formUrl = `${window.location.origin}/form.html?session=${this.currentSession.id}`;
+                const formUrl = `${window.location.origin}/form.html?session=${sessionId}`;
                 const qr = qrcode(0, 'L');
                 qr.addData(formUrl);
                 qr.make();
@@ -1477,8 +1408,8 @@
                 document.body.style.overflow = 'auto';
             },
 
-            copyToClipboard: function() {
-                const urlInput = document.getElementById('sessionUrl');
+            copyToClipboard: function(sessionId) {
+                const urlInput = document.getElementById(`sessionUrl_${sessionId}`);
                 urlInput.select();
                 urlInput.setSelectionRange(0, 99999);
                 document.execCommand('copy');
@@ -1495,23 +1426,6 @@
                 const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
                 sessions[session.id] = session;
                 localStorage.setItem('sessions', JSON.stringify(sessions));
-            },
-
-            syncOfflineData: function() {
-                const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
-                Object.values(sessions).forEach(session => {
-                    if (session.offline && session.deviceId === this.deviceId) {
-                        const sessionRef = window.dbRef(window.database, `sessions/${session.id}`);
-                        window.dbSet(sessionRef, session)
-                            .then(() => {
-                                session.offline = false;
-                                this.saveSessionToLocal(session);
-                            })
-                            .catch(error => {
-                                console.error('Sync failed:', error);
-                            });
-                    }
-                });
             },
 
             addToSessionHistory: function(session) {
@@ -1548,8 +1462,6 @@
 
             loadSessionHistory: function() {
                 this.renderSessionHistory();
-                window.addEventListener('online', this.syncOfflineData.bind(this));
-                this.syncOfflineData();
             },
 
             renderSessionHistory: function() {
@@ -1632,26 +1544,56 @@
                 const attendees = session.attendees || [];
                 const week = session.week;
                 const subjectName = session.subject;
+                const allWeeks = [...(session.existingWeeks || []), week].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
                 
                 const data = roster.map(student => {
                     const attended = attendees.some(a => a.id === student.id);
-                    return {
+                    const row = {
                         'Student ID': student.id,
                         'Name': student.name,
-                        'Section': student.section || '',
-                        [`Week ${week}`]: attended ? 1 : 0,
-                        [`Timestamp Week ${week}`]: attended ? 
-                            new Date(attendees.find(a => a.id === student.id).timestamp).toLocaleString() : 'N/A'
+                        'Section': student.section || ''
+                    };
+                    
+                    allWeeks.forEach(w => {
+                        if (w === week) {
+                            row[`Week ${w}`] = attended ? 1 : 0;
+                            row[`Timestamp Week ${w}`] = attended ? 
+                                new Date(attendees.find(a => a.id === student.id).timestamp).toLocaleString() : 'N/A';
+                        } else if (student.weekData?.[w] !== undefined) {
+                            row[`Week ${w}`] = student.weekData[w];
+                            row[`Timestamp Week ${w}`] = student[`Timestamp Week ${w}`] || 'N/A';
+                        }
+                    });
+                    
+                    return row;
+                });
+                
+                // Calculate totals
+                const reportData = data.map(row => {
+                    const total = allWeeks.reduce((sum, week) => {
+                        return sum + (Number(row[`Week ${week}`]) || 0);
+                    }, 0);
+                    
+                    return {
+                        ...row,
+                        'Total Attendance': total,
+                        'Attendance Percentage': (total / allWeeks.length * 100).toFixed(2) + '%'
                     };
                 });
                 
-                const ws = XLSX.utils.json_to_sheet(data);
+                const ws = XLSX.utils.json_to_sheet(reportData);
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, "Attendance");
                 
                 const today = new Date();
                 const dateStr = today.toISOString().split('T')[0];
-                const fileName = `${subjectName} Attendance for Week ${week} ${dateStr}.xlsx`;
+                let fileName;
+                
+                if (allWeeks.length > 1) {
+                    fileName = `${subjectName} Attendance from Week ${Math.min(...allWeeks)} to ${Math.max(...allWeeks)} ${dateStr}.xlsx`;
+                } else {
+                    fileName = `${subjectName} Attendance for Week ${week} ${dateStr}.xlsx`;
+                }
                 
                 XLSX.writeFile(wb, fileName);
             },
@@ -1719,26 +1661,40 @@
                         this.showMessage('Please upload a roster first', 'warning');
                     }
                 } else if (command.includes('end session') || command.includes('stop session')) {
-                    if (document.getElementById('endSessionBtn') && !document.getElementById('endSessionBtn').disabled) {
-                        document.getElementById('endSessionBtn').click();
+                    const activeSession = this.currentSessions.find(s => s.active);
+                    if (activeSession) {
+                        this.endSession(activeSession.id);
                     } else {
                         this.showMessage('No active session to end', 'warning');
                     }
                 } else if (command.includes('fullscreen') || command.includes('show qr')) {
-                    if (document.getElementById('currentSessionCard') && !document.getElementById('currentSessionCard').classList.contains('hidden')) {
-                        this.openFullscreenQR();
+                    const activeSession = this.currentSessions.find(s => s.active);
+                    if (activeSession) {
+                        this.openFullscreenQR(activeSession.id);
                     } else {
                         this.showMessage('No active session to show QR code', 'warning');
                     }
                 } else if (command.includes('copy link') || command.includes('session link')) {
-                    if (document.getElementById('currentSessionCard') && !document.getElementById('currentSessionCard').classList.contains('hidden')) {
-                        this.copyToClipboard();
+                    const activeSession = this.currentSessions.find(s => s.active);
+                    if (activeSession) {
+                        this.copyToClipboard(activeSession.id);
                     } else {
                         this.showMessage('No active session to copy link', 'warning');
                     }
                 } else {
                     this.showMessage('Command not recognized. Try "start session" or "end session"', 'warning');
                 }
+            },
+
+            showMessage: function(text, type) {
+                const messageDiv = document.getElementById('message');
+                messageDiv.textContent = text;
+                messageDiv.className = `alert alert-${type}`;
+                messageDiv.classList.remove('hidden');
+                
+                setTimeout(() => {
+                    messageDiv.classList.add('hidden');
+                }, 5000);
             }
         };
 
@@ -1747,9 +1703,6 @@
         });
 
         window.app = app;
-        window.openFullscreenQR = app.openFullscreenQR;
-        window.closeFullscreenQR = app.closeFullscreenQR;
-        window.copyToClipboard = app.copyToClipboard;
     </script>
 </body>
 </html>
