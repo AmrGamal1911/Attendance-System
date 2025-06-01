@@ -1270,9 +1270,8 @@
                     this.saveSessionToLocal(this.currentSession);
                     this.updateSessionHistory(this.currentSession);
                     
-                    setTimeout(() => {
-                        document.getElementById('currentSessionCard').remove();
-                    }, 3000);
+                    // Remove the dashboard completely
+                    document.getElementById('currentSessionCard').remove();
                     
                 } catch (error) {
                     console.error('Error auto-ending session:', error);
@@ -1303,9 +1302,8 @@
                     this.saveSessionToLocal(this.currentSession);
                     this.updateSessionHistory(this.currentSession);
                     
-                    setTimeout(() => {
-                        document.getElementById('currentSessionCard').remove();
-                    }, 3000);
+                    // Remove the dashboard completely
+                    document.getElementById('currentSessionCard').remove();
                     
                 } catch (error) {
                     console.error('Error ending session:', error);
