@@ -8,8 +8,18 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places&callback=initMap" async defer></script>
     
+    <script>
+        function loadGoogleMaps() {
+            const script = document.createElement('script');
+            script.src = 'https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places&callback=initMap';
+            script.async = true;
+            script.defer = true;
+            document.head.appendChild(script);
+        }
+        window.addEventListener('load', loadGoogleMaps);
+    </script>
+
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
         import { getDatabase, ref, set, onValue, push, serverTimestamp, off } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
@@ -638,6 +648,12 @@
             z-index: 2100 !important;
         }
         
+        .location-btn {
+            display: none;
+            margin-left: 10px;
+            padding: 0.5rem;
+        }
+        
         @keyframes slideDown {
             from {
                 opacity: 0;
@@ -743,7 +759,6 @@
             }
         }
 
-        /* New styles for multiple sessions */
         .session-card {
             margin-bottom: 2rem;
         }
@@ -848,7 +863,7 @@
                             <input type="checkbox" id="useLocation">
                             <span class="toggle-slider"></span>
                         </label>
-                        <button type="button" onclick="app.openLocationModal()" class="btn btn-secondary" style="margin-left: 10px; padding: 0.5rem;">
+                        <button type="button" id="setLocationBtn" class="btn btn-secondary location-btn">
                             <i class="fas fa-map-marked-alt"></i> Set Location
                         </button>
                     </label>
@@ -938,8 +953,14 @@
                 localStorage.setItem('deviceId', this.deviceId);
                 this.setupDragAndDrop();
                 
-                document.getElementById('useLocation').addEventListener('change', function() {
+                const locationToggle = document.getElementById('useLocation');
+                locationToggle.addEventListener('change', function() {
                     document.getElementById('locationSettings').classList.toggle('hidden', !this.checked);
+                    document.getElementById('setLocationBtn').style.display = this.checked ? 'block' : 'none';
+                });
+                
+                document.getElementById('setLocationBtn').addEventListener('click', () => {
+                    this.openLocationModal();
                 });
                 
                 this.initVoiceCommands();
@@ -1041,11 +1062,8 @@
                     return;
                 }
                 
-                document.getElementById('useLocation').checked = true;
-                document.getElementById('locationSettings').classList.remove('hidden');
                 this.classLocation = this.selectedLocation;
                 
-                // Update location preview
                 const geocoder = new google.maps.Geocoder();
                 geocoder.geocode({ location: this.selectedLocation }, (results, status) => {
                     let address = 'Custom location selected';
@@ -1490,7 +1508,7 @@
                         });
                         
                         newRow['Total Attendance'] = allWeeks.reduce((sum, week) => {
-                            return sum + (Number(newRow[`Week ${week}`]) || 0;
+                            return sum + (Number(newRow[`Week ${week}`]) || 0);
                         }, 0);
                         
                         allWeeks.forEach(week => {
@@ -1844,7 +1862,7 @@
                         }
                     });
                     
-                    row['Total Attendance'] = allWeeks.reduce((sum, w) => sum + (Number(row[`Week ${w}`]) || 0, 0);
+                    row['Total Attendance'] = allWeeks.reduce((sum, w) => sum + (Number(row[`Week ${w}`]) || 0), 0);
                     
                     allWeeks.forEach(w => {
                         if (w === week) {
