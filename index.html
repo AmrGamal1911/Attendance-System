@@ -653,6 +653,24 @@
             padding: 0.5rem;
         }
         
+        .session-ended-message {
+            background: rgba(239, 68, 68, 0.1);
+            padding: 1.5rem;
+            border-radius: var(--border-radius);
+            margin-bottom: 1.5rem;
+            text-align: center;
+            border-left: 4px solid var(--danger);
+        }
+        
+        .session-ended-message h3 {
+            color: var(--danger);
+            margin-bottom: 0.5rem;
+        }
+        
+        .session-ended-message p {
+            margin-bottom: 0.5rem;
+        }
+        
         @keyframes slideDown {
             from {
                 opacity: 0;
@@ -1289,7 +1307,8 @@
                                 locationDistance,
                                 deviceId: app.deviceId,
                                 existingWeeks: [...app.existingWeeks],
-                                maxExistingWeek: app.maxExistingWeek
+                                maxExistingWeek: app.maxExistingWeek,
+                                endReason: null
                             };
                             
                             if (useLocation && app.classLocation) {
@@ -1322,7 +1341,7 @@
                                     app.updateSessionDisplay(sessionData);
                                     
                                     if (attendeeList.length >= maxAttendees && sessionData.active) {
-                                        app.endSession(sessionData.id);
+                                        app.endSession(sessionData.id, 'Automatically ended - Maximum attendees reached');
                                     }
                                     
                                     app.saveSessionToLocal(sessionData);
@@ -1433,7 +1452,7 @@
                             <i class="fas fa-download"></i> Export Report
                         </button>
                         
-                        <button onclick="app.endSession('${sessionId}')" class="btn btn-danger flex-1">
+                        <button onclick="app.endSession('${sessionId}', 'Manually ended by TA')" class="btn btn-danger flex-1">
                             <i class="fas fa-stop-circle"></i> End Session
                         </button>
                     </div>
@@ -1590,24 +1609,53 @@
                 XLSX.writeFile(wb, fileName);
             },
 
-            endSession: function(sessionId) {
-                const sessionRef = window.dbRef(window.database, `sessions/${sessionId}/active`);
-                window.dbSet(sessionRef, false)
-                    .then(() => {
-                        this.showMessage('Session ended successfully.', 'success');
-                        const statusDiv = document.getElementById(`sessionStatus_${sessionId}`);
-                        statusDiv.classList.remove('session-active');
-                        statusDiv.classList.add('session-inactive');
-                        statusDiv.innerHTML = `
-                            <i class="fas fa-calendar-times"></i> 
-                            <span>Session Ended</span>
+            endSession: function(sessionId, reason) {
+                const sessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
+                
+                window.dbGet(sessionRef).then((snapshot) => {
+                    const sessionData = snapshot.val();
+                    if (!sessionData) return;
+                    
+                    const updates = {
+                        active: false,
+                        endReason: reason || 'Manually ended',
+                        endedAt: window.dbServerTimestamp()
+                    };
+                    
+                    return window.dbSet(sessionRef, {...sessionData, ...updates});
+                })
+                .then(() => {
+                    this.showMessage('Session ended successfully.', 'success');
+                    const statusDiv = document.getElementById(`sessionStatus_${sessionId}`);
+                    statusDiv.classList.remove('session-active');
+                    statusDiv.classList.add('session-inactive');
+                    statusDiv.innerHTML = `
+                        <i class="fas fa-calendar-times"></i> 
+                        <span>Session Ended</span>
+                    `;
+                    
+                    // Add session ended message
+                    const sessionCard = document.getElementById(`sessionCard_${sessionId}`);
+                    if (sessionCard) {
+                        const endedMessage = document.createElement('div');
+                        endedMessage.className = 'session-ended-message';
+                        endedMessage.innerHTML = `
+                            <h3>Session Ended</h3>
+                            <p>${reason || 'The session has been ended'}</p>
+                            <p>You can export the attendance report below.</p>
                         `;
-                        this.clearSessionInputs();
-                    })
-                    .catch((error) => {
-                        console.error('Error ending session:', error);
-                        this.showMessage('Failed to end session.', 'danger');
-                    });
+                        sessionCard.insertBefore(endedMessage, sessionCard.querySelector('.flex.gap-4.mt-4'));
+                    }
+                    
+                    this.clearSessionInputs();
+                    
+                    // Update session history
+                    this.updateSessionHistory(sessionId, reason);
+                })
+                .catch((error) => {
+                    console.error('Error ending session:', error);
+                    this.showMessage('Failed to end session.', 'danger');
+                });
             },
 
             clearSessionInputs: function() {
@@ -1679,7 +1727,9 @@
                     date: new Date().toISOString(),
                     attendees: session.attendeeCount || 0,
                     maxAttendees: session.maxAttendees,
-                    deviceId: this.deviceId
+                    deviceId: this.deviceId,
+                    active: session.active,
+                    endReason: session.endReason
                 });
                 
                 if (history.length > 10) {
@@ -1690,13 +1740,13 @@
                 this.renderSessionHistory();
             },
 
-            updateSessionHistory: function(updatedSession) {
+            updateSessionHistory: function(sessionId, endReason) {
                 const history = JSON.parse(localStorage.getItem('sessionHistory') || '[]');
-                const sessionIndex = history.findIndex(s => s.id === updatedSession.id);
+                const sessionIndex = history.findIndex(s => s.id === sessionId);
                 
                 if (sessionIndex !== -1) {
-                    history[sessionIndex].attendees = updatedSession.attendeeCount || 0;
-                    history[sessionIndex].active = updatedSession.active;
+                    history[sessionIndex].active = false;
+                    history[sessionIndex].endReason = endReason;
                     localStorage.setItem('sessionHistory', JSON.stringify(history));
                     this.renderSessionHistory();
                 }
@@ -1724,9 +1774,15 @@
                             <div class="text-sm text-gray-500">
                                 ${new Date(session.date).toLocaleString()} | 
                                 ${session.attendees}/${session.maxAttendees} students
+                                ${session.endReason ? `<div><small>${session.endReason}</small></div>` : ''}
                             </div>
                         </div>
                         <div class="session-actions">
+                            ${session.active ? `
+                            <button onclick="app.endSession('${session.id}', 'Manually ended from history')" class="btn btn-danger" title="End Session">
+                                <i class="fas fa-stop-circle"></i>
+                            </button>
+                            ` : ''}
                             <button onclick="app.generateSessionQR('${session.id}')" class="btn btn-secondary" title="QR Code">
                                 <i class="fas fa-qrcode"></i>
                             </button>
@@ -1916,7 +1972,7 @@
                 } else if (command.includes('end session') || command.includes('stop session')) {
                     const activeSession = this.currentSessions.find(s => s.active);
                     if (activeSession) {
-                        this.endSession(activeSession.id);
+                        this.endSession(activeSession.id, 'Ended via voice command');
                     } else {
                         this.showMessage('No active session to end', 'warning');
                     }
