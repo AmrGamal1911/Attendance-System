@@ -726,6 +726,14 @@
             border: none;
             cursor: pointer;
         }
+        
+        .session-feedback {
+            text-align: center;
+            padding: 2rem;
+            border-radius: var(--border-radius);
+            background: #f8fafc;
+            margin-bottom: 1.5rem;
+        }
     </style>
 </head>
 <body>
@@ -993,10 +1001,16 @@
                                 // Preserve existing week data if present
                                 const weekData = {};
                                 Object.keys(weekColumns).forEach(weekNum => {
-                                    weekData[weekNum] = row[weekColumns[weekNum]];
+                                    const weekValue = row[weekColumns[weekNum]];
+                                    // Convert timestamp to 1 if present, 0 if not
+                                    weekData[weekNum] = weekValue ? 1 : 0;
+                                    // Store timestamp if available
+                                    if (weekValue && typeof weekValue === 'string' && (weekValue.includes('/') || weekValue.includes(':'))) {
+                                        row[`Timestamp Week ${weekNum}`] = weekValue;
+                                    }
                                 });
                                 
-                                return { id, name, section, weekData };
+                                return { id, name, section, weekData, ...row };
                             }).filter(student => student.id && student.name);
                             
                             if (app.rosterData.length === 0) {
@@ -1045,6 +1059,9 @@
                         app.showMessage('Please upload roster and fill required fields', 'danger');
                         return;
                     }
+                    
+                    // Clear any existing session feedback
+                    document.getElementById('sessionsContainer').innerHTML = '';
                     
                     const finalizeSession = async () => {
                         try {
@@ -1114,9 +1131,11 @@
 
                     if (useLocation && navigator.geolocation) {
                         navigator.geolocation.getCurrentPosition(pos => {
-                            app.currentSession.classLocation = {
-                                lat: pos.coords.latitude,
-                                lng: pos.coords.longitude
+                            app.currentSession = {
+                                classLocation: {
+                                    lat: pos.coords.latitude,
+                                    lng: pos.coords.longitude
+                                }
                             };
                             finalizeSession();
                         }, err => {
@@ -1263,7 +1282,10 @@
 
             exportAttendanceReport: function(sessionId) {
                 const session = this.currentSessions.find(s => s.id === sessionId);
-                if (!session) return;
+                if (!session) {
+                    this.showMessage('Session not found or already ended', 'danger');
+                    return;
+                }
                 
                 const roster = session.roster || [];
                 const attendees = session.attendees || [];
@@ -1283,7 +1305,7 @@
                             'Section': student.section || ''
                         };
                         
-                        // Add week columns first
+                        // Add week columns first with attendance values (1/0)
                         allWeeks.forEach(week => {
                             if (week === currentWeek) {
                                 newRow[`Week ${week}`] = matched ? 1 : 0;
@@ -1381,14 +1403,22 @@
                     
                     const sessionCard = document.getElementById(`sessionCard_${sessionData.id}`);
                     if (sessionCard) {
-                        const statusDiv = document.getElementById(`sessionStatus_${sessionData.id}`);
-                        if (statusDiv) {
-                            statusDiv.className = 'session-status session-inactive';
-                            statusDiv.innerHTML = `
+                        sessionCard.innerHTML = `
+                            <div class="session-status session-inactive">
                                 <i class="fas fa-calendar-times"></i>
                                 <span>Session Ended Automatically (Max Attendance Reached)</span>
-                            `;
-                        }
+                            </div>
+                            
+                            <div class="session-feedback">
+                                <h2><i class="fas fa-check-circle"></i> Session Completed</h2>
+                                <p>This session has automatically ended because the maximum number of attendees (${sessionData.maxAttendees}) was reached.</p>
+                                <p>You can export the attendance report below.</p>
+                                
+                                <button onclick="app.exportAttendanceReport('${sessionData.id}')" class="btn btn-success mt-3">
+                                    <i class="fas fa-download"></i> Export Final Report
+                                </button>
+                            </div>
+                        `;
                     }
                     
                     this.showMessage('Session automatically ended - max attendance reached.', 'success');
@@ -1423,14 +1453,22 @@
                     
                     const sessionCard = document.getElementById(`sessionCard_${sessionId}`);
                     if (sessionCard) {
-                        const statusDiv = document.getElementById(`sessionStatus_${sessionId}`);
-                        if (statusDiv) {
-                            statusDiv.className = 'session-status session-inactive';
-                            statusDiv.innerHTML = `
+                        sessionCard.innerHTML = `
+                            <div class="session-status session-inactive">
                                 <i class="fas fa-calendar-times"></i>
                                 <span>Session Ended Manually</span>
-                            `;
-                        }
+                            </div>
+                            
+                            <div class="session-feedback">
+                                <h2><i class="fas fa-check-circle"></i> Session Ended</h2>
+                                <p>You have manually ended this attendance session.</p>
+                                <p>You can export the attendance report below.</p>
+                                
+                                <button onclick="app.exportAttendanceReport('${sessionId}')" class="btn btn-success mt-3">
+                                    <i class="fas fa-download"></i> Export Final Report
+                                </button>
+                            </div>
+                        `;
                     }
                     
                     if (sessionData.attendeesRef) {
