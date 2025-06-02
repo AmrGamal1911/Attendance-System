@@ -1121,7 +1121,7 @@
                 });
 
                 function highlight() {
-                                        fileUpload.classList.add('bg-blue-50');
+                    fileUpload.classList.add('bg-blue-50');
                     fileUpload.style.borderColor = 'var(--primary)';
                 }
 
@@ -1191,11 +1191,16 @@
                             
                             if (jsonData.length > 0) {
                                 Object.keys(jsonData[0]).forEach(key => {
-                                    const weekMatch = key.match(/(?:week|session|attendance)[\s_]*(\d+)/i);
-                                    if (weekMatch) {
-                                        const weekNum = parseInt(weekMatch[1]);
-                                        weekColumns[weekNum] = key;
-                                        if (weekNum > maxWeek) maxWeek = weekNum;
+                                    const lowerKey = key.toLowerCase();
+                                    if (lowerKey.includes('timestamp')) return;
+
+                                    const match = key.match(/week[\s_]?(\d+)/i);
+                                    if (match) {
+                                        const weekNum = parseInt(match[1]);
+                                        if (!isNaN(weekNum)) {
+                                            weekColumns[weekNum] = key;
+                                            if (weekNum > maxWeek) maxWeek = weekNum;
+                                        }
                                     }
                                 });
                             }
@@ -1207,10 +1212,12 @@
                                 
                                 const weekData = {};
                                 Object.keys(weekColumns).forEach(weekNum => {
-                                    const weekValue = row[weekColumns[weekNum]];
-                                    weekData[weekNum] = weekValue ? 1 : 0;
-                                    if (weekValue && typeof weekValue === 'string' && (weekValue.includes('/') || weekValue.includes(':'))) {
-                                        row[`Timestamp Week ${weekNum}`] = weekValue;
+                                    const rawValue = row[weekColumns[weekNum]];
+                                    const cleaned = String(rawValue || '').trim().toLowerCase();
+                                    const presentValues = ['1', 'yes', '✓', 'present', 'x'];
+                                    weekData[weekNum] = presentValues.includes(cleaned) ? 1 : 0;
+                                    if (rawValue && typeof rawValue === 'string' && (rawValue.includes('/') || rawValue.includes(':'))) {
+                                        row[`Timestamp Week ${weekNum}`] = rawValue;
                                     }
                                 });
                                 
@@ -1315,7 +1322,7 @@
                                     app.updateSessionDisplay(sessionData);
                                     
                                     if (attendeeList.length >= maxAttendees && sessionData.active) {
-                                        app.endSessionAutomatically(sessionData);
+                                        app.endSession(sessionData.id);
                                     }
                                     
                                     app.saveSessionToLocal(sessionData);
@@ -1583,111 +1590,45 @@
                 XLSX.writeFile(wb, fileName);
             },
 
-            endSessionAutomatically: async function(sessionData) {
-                try {
-                    await window.dbSet(window.dbRef(window.database, `sessions/${sessionData.id}/active`), false);
-                    
-                    const sessionCard = document.getElementById(`sessionCard_${sessionData.id}`);
-                    if (sessionCard) {
-                        sessionCard.innerHTML = `
-                            <div class="session-status session-inactive">
-                                <i class="fas fa-calendar-times"></i>
-                                <span>Session Ended Automatically (Max Attendance Reached)</span>
-                            </div>
-                            
-                            <div class="session-feedback">
-                                <h2><i class="fas fa-check-circle"></i> Session Completed</h2>
-                                <p>This session has automatically ended because the maximum number of attendees (${sessionData.maxAttendees}) was reached.</p>
-                                <p>You can export the attendance report below.</p>
-                                
-                                <button id="exportFinalReport_${sessionData.id}" class="btn btn-success mt-3">
-                                    <i class="fas fa-download"></i> Export Final Report
-                                </button>
-                            </div>
+            endSession: function(sessionId) {
+                const sessionRef = window.dbRef(window.database, `sessions/${sessionId}/active`);
+                window.dbSet(sessionRef, false)
+                    .then(() => {
+                        this.showMessage('Session ended successfully.', 'success');
+                        const statusDiv = document.getElementById(`sessionStatus_${sessionId}`);
+                        statusDiv.classList.remove('session-active');
+                        statusDiv.classList.add('session-inactive');
+                        statusDiv.innerHTML = `
+                            <i class="fas fa-calendar-times"></i> 
+                            <span>Session Ended</span>
                         `;
-                        
-                        document.getElementById(`exportFinalReport_${sessionData.id}`).addEventListener('click', () => {
-                            this.exportAttendanceReport(sessionData.id);
-                        });
-                    }
-                    
-                    this.showMessage('Session automatically ended - max attendance reached.', 'success');
-                    
-                    if (sessionData.attendeesRef) {
-                        window.dbOff(sessionData.attendeesRef);
-                    }
-                    
-                    sessionData.active = false;
-                    this.saveSessionToLocal(sessionData);
-                    this.updateSessionHistory(sessionData);
-                    
-                    this.currentSessions = this.currentSessions.filter(s => s.id !== sessionData.id);
-                    
-                } catch (error) {
-                    console.error('Error auto-ending session:', error);
-                }
+                        this.clearSessionInputs();
+                    })
+                    .catch((error) => {
+                        console.error('Error ending session:', error);
+                        this.showMessage('Failed to end session.', 'danger');
+                    });
             },
 
-            endSession: async function(sessionId) {
-                const sessionIndex = this.currentSessions.findIndex(s => s.id === sessionId);
-                if (sessionIndex === -1) {
-                    this.showMessage('Session not found', 'danger');
-                    return;
-                }
-                
-                const sessionData = this.currentSessions[sessionIndex];
-                
-                try {
-                    const sessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
-                    const fullSessionData = {
-                        ...sessionData,
-                        active: false,
-                        endedAt: window.dbServerTimestamp()
-                    };
-                    
-                    await window.dbSet(sessionRef, fullSessionData);
-                    this.saveSessionToLocal(fullSessionData);
-                    
-                    const sessionCard = document.getElementById(`sessionCard_${sessionId}`);
-                    if (sessionCard) {
-                        sessionCard.innerHTML = `
-                            <div class="session-status session-inactive">
-                                <i class="fas fa-calendar-times"></i>
-                                <span>Session Ended Manually</span>
-                            </div>
-                            
-                            <div class="session-feedback">
-                                <h2><i class="fas fa-check-circle"></i> Session Ended</h2>
-                                <p>You have manually ended this attendance session.</p>
-                                <p>You can export the attendance report below.</p>
-                                
-                                <button id="exportFinalReport_${sessionId}" class="btn btn-success mt-3">
-                                    <i class="fas fa-download"></i> Export Final Report
-                                </button>
-                            </div>
-                        `;
-                        
-                        document.getElementById(`exportFinalReport_${sessionId}`).addEventListener('click', () => {
-                            this.exportAttendanceReport(sessionId);
-                        });
-                    }
-                    
-                    if (sessionData.attendeesRef) {
-                        window.dbOff(sessionData.attendeesRef);
-                    }
-                    
-                    this.showMessage('Session ended successfully.', 'success');
-                    
-                    sessionData.active = false;
-                    this.saveSessionToLocal(sessionData);
-                    this.updateSessionHistory(sessionData);
-                    
-                    this.currentSessions.splice(sessionIndex, 1);
-                    
-                } catch (error) {
-                    console.error('Error ending session:', error);
-                    this.showMessage('Failed to end session', 'danger');
-                }
+            clearSessionInputs: function() {
+                const rosterInput = document.getElementById('roster');
+                const fileNameSpan = document.getElementById('fileName');
+                const subjectInput = document.getElementById('subjectNameInput');
+                const weekInput = document.getElementById('week');
+                const maxAttendeesInput = document.getElementById('max_attendees');
+                const passwordInput = document.getElementById('password');
+                const emailInput = document.getElementById('ta_email');
+
+                rosterInput.value = '';
+                fileNameSpan.textContent = 'Drag & drop or click to browse files';
+                subjectInput.value = '';
+                weekInput.value = '';
+                maxAttendeesInput.value = 30;
+                passwordInput.value = '';
+                emailInput.value = '';
+                document.getElementById('rosterInfo').classList.add('hidden');
+                document.getElementById('createSessionBtn').disabled = true;
+                this.rosterData = [];
             },
 
             openFullscreenQR: function(sessionId) {
