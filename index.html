@@ -715,6 +715,17 @@
         .session-card:last-child {
             margin-bottom: 0;
         }
+        
+        .update-subject-btn {
+            margin-left: 10px;
+            padding: 0.5rem;
+            background: var(--info);
+            color: white;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            border: none;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -741,7 +752,12 @@
                     <div class="flex gap-4">
                         <div class="form-group flex-1">
                             <label for="subjectNameInput"><i class="fas fa-book"></i> Subject Name</label>
-                            <input type="text" id="subjectNameInput" placeholder="Enter subject name">
+                            <div style="display: flex; align-items: center;">
+                                <input type="text" id="subjectNameInput" placeholder="Enter subject name">
+                                <button type="button" class="update-subject-btn" onclick="app.updateSubjectName()">
+                                    <i class="fas fa-sync-alt"></i> Update
+                                </button>
+                            </div>
                         </div>
                         <div class="flex-1">
                             <p><strong><i class="fas fa-users"></i> Students:</strong> <span id="studentCount">0</span></p>
@@ -852,6 +868,16 @@
                 this.initVoiceCommands();
                 this.loadSessionHistory();
                 this.initializeApp();
+            },
+
+            updateSubjectName: function() {
+                const newSubject = document.getElementById('subjectNameInput').value.trim();
+                if (newSubject) {
+                    this.subjectName = newSubject;
+                    this.showMessage('Subject name updated successfully!', 'success');
+                } else {
+                    this.showMessage('Please enter a valid subject name', 'danger');
+                }
             },
 
             setupDragAndDrop: function() {
@@ -1257,15 +1283,31 @@
                             'Section': student.section || ''
                         };
                         
-                        // Copy existing week data
+                        // Add week columns first
                         allWeeks.forEach(week => {
                             if (week === currentWeek) {
                                 newRow[`Week ${week}`] = matched ? 1 : 0;
-                                newRow[`Timestamp Week ${week}`] = matched ? 
-                                    new Date(matched.timestamp).toLocaleString() : 'N/A';
                             } else if (student.weekData?.[week] !== undefined) {
                                 newRow[`Week ${week}`] = student.weekData[week];
-                                newRow[`Timestamp Week ${week}`] = student[`Timestamp Week ${week}`] || 'N/A';
+                            } else {
+                                newRow[`Week ${week}`] = 0;
+                            }
+                        });
+                        
+                        // Add total column
+                        newRow['Total Attendance'] = allWeeks.reduce((sum, week) => {
+                            return sum + (Number(newRow[`Week ${week}`]) || 0);
+                        }, 0);
+                        
+                        // Add timestamp columns after all weeks
+                        allWeeks.forEach(week => {
+                            if (week === currentWeek) {
+                                newRow[`Timestamp Week ${week}`] = matched ? 
+                                    new Date(matched.timestamp).toLocaleString() : 'N/A';
+                            } else if (student[`Timestamp Week ${week}`] !== undefined) {
+                                newRow[`Timestamp Week ${week}`] = student[`Timestamp Week ${week}`];
+                            } else {
+                                newRow[`Timestamp Week ${week}`] = 'N/A';
                             }
                         });
                         
@@ -1275,32 +1317,47 @@
                     // First-time report
                     reportData = roster.map(student => {
                         const matched = attendees.find(a => a.id === student.id);
-                        return {
+                        const row = {
                             'Student ID': student.id,
                             'Name': student.name,
                             'Section': student.section || '',
                             [`Week ${currentWeek}`]: matched ? 1 : 0,
+                            'Total Attendance': matched ? 1 : 0,
                             [`Timestamp Week ${currentWeek}`]: matched ? 
                                 new Date(matched.timestamp).toLocaleString() : 'N/A'
                         };
+                        return row;
                     });
                 }
                 
-                // Calculate totals
-                reportData = reportData.map(row => {
-                    const total = allWeeks.reduce((sum, week) => {
-                        return sum + (Number(row[`Week ${week}`]) || 0);
-                    }, 0);
-                    
-                    return {
-                        ...row,
-                        'Total Attendance': total,
-                        'Attendance Percentage': (total / allWeeks.length * 100).toFixed(2) + '%'
-                    };
+                // Generate Excel file with correct column order
+                const columnOrder = ['Student ID', 'Name', 'Section'];
+                
+                // Add week columns
+                allWeeks.forEach(week => {
+                    columnOrder.push(`Week ${week}`);
                 });
                 
-                // Generate Excel file
-                const ws = XLSX.utils.json_to_sheet(reportData);
+                // Add total column
+                columnOrder.push('Total Attendance');
+                
+                // Add timestamp columns
+                allWeeks.forEach(week => {
+                    columnOrder.push(`Timestamp Week ${week}`);
+                });
+                
+                // Reorder the data according to columnOrder
+                const reorderedData = reportData.map(row => {
+                    const newRow = {};
+                    columnOrder.forEach(col => {
+                        if (row[col] !== undefined) {
+                            newRow[col] = row[col];
+                        }
+                    });
+                    return newRow;
+                });
+                
+                const ws = XLSX.utils.json_to_sheet(reorderedData);
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, "Attendance");
                 
@@ -1344,6 +1401,9 @@
                     this.saveSessionToLocal(sessionData);
                     this.updateSessionHistory(sessionData);
                     
+                    // Remove the session from currentSessions array
+                    this.currentSessions = this.currentSessions.filter(s => s.id !== sessionData.id);
+                    
                 } catch (error) {
                     console.error('Error auto-ending session:', error);
                 }
@@ -1382,6 +1442,9 @@
                     sessionData.active = false;
                     this.saveSessionToLocal(sessionData);
                     this.updateSessionHistory(sessionData);
+                    
+                    // Remove the session from currentSessions array
+                    this.currentSessions.splice(sessionIndex, 1);
                     
                 } catch (error) {
                     console.error('Error ending session:', error);
@@ -1557,31 +1620,57 @@
                     allWeeks.forEach(w => {
                         if (w === week) {
                             row[`Week ${w}`] = attended ? 1 : 0;
-                            row[`Timestamp Week ${w}`] = attended ? 
-                                new Date(attendees.find(a => a.id === student.id).timestamp).toLocaleString() : 'N/A';
                         } else if (student.weekData?.[w] !== undefined) {
                             row[`Week ${w}`] = student.weekData[w];
-                            row[`Timestamp Week ${w}`] = student[`Timestamp Week ${w}`] || 'N/A';
+                        } else {
+                            row[`Week ${w}`] = 0;
+                        }
+                    });
+                    
+                    row['Total Attendance'] = allWeeks.reduce((sum, w) => sum + (Number(row[`Week ${w}`]) || 0), 0);
+                    
+                    allWeeks.forEach(w => {
+                        if (w === week) {
+                            row[`Timestamp Week ${w}`] = attended ? 
+                                new Date(attendees.find(a => a.id === student.id).timestamp).toLocaleString() : 'N/A';
+                        } else if (student[`Timestamp Week ${w}`] !== undefined) {
+                            row[`Timestamp Week ${w}`] = student[`Timestamp Week ${w}`];
+                        } else {
+                            row[`Timestamp Week ${w}`] = 'N/A';
                         }
                     });
                     
                     return row;
                 });
                 
-                // Calculate totals
-                const reportData = data.map(row => {
-                    const total = allWeeks.reduce((sum, week) => {
-                        return sum + (Number(row[`Week ${week}`]) || 0);
-                    }, 0);
-                    
-                    return {
-                        ...row,
-                        'Total Attendance': total,
-                        'Attendance Percentage': (total / allWeeks.length * 100).toFixed(2) + '%'
-                    };
+                // Generate Excel file with correct column order
+                const columnOrder = ['Student ID', 'Name', 'Section'];
+                
+                // Add week columns
+                allWeeks.forEach(week => {
+                    columnOrder.push(`Week ${week}`);
                 });
                 
-                const ws = XLSX.utils.json_to_sheet(reportData);
+                // Add total column
+                columnOrder.push('Total Attendance');
+                
+                // Add timestamp columns
+                allWeeks.forEach(week => {
+                    columnOrder.push(`Timestamp Week ${week}`);
+                });
+                
+                // Reorder the data according to columnOrder
+                const reorderedData = data.map(row => {
+                    const newRow = {};
+                    columnOrder.forEach(col => {
+                        if (row[col] !== undefined) {
+                            newRow[col] = row[col];
+                        }
+                    });
+                    return newRow;
+                });
+                
+                const ws = XLSX.utils.json_to_sheet(reorderedData);
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, "Attendance");
                 
