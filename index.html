@@ -1844,7 +1844,7 @@
                         }
                     });
                     
-                    row['Total Attendance'] = allWeeks.reduce((sum, w) => sum + (Number(row[`Week ${w}`]) || 0), 0);
+                    row['Total Attendance'] = allWeeks.reduce((sum, w) => sum + (Number(row[`Week ${w}`]) || 0, 0);
                     
                     allWeeks.forEach(w => {
                         if (w === week) {
