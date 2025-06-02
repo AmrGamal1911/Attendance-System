@@ -12,7 +12,7 @@
     <script>
         function loadGoogleMaps() {
             const script = document.createElement('script');
-            script.src = 'https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places&callback=initMap';
+            script.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes&libraries=places&callback=initMap';
             script.async = true;
             script.defer = true;
             document.head.appendChild(script);
@@ -214,7 +214,6 @@
             display: block;
             margin-bottom: 0.5rem;
             font-weight: 500;
-            color: var(--dark);
             display: flex;
             align-items: center;
             gap: 0.5rem;
@@ -969,62 +968,70 @@
             },
 
             initMap: function() {
-                if (!window.google) return;
+                if (!window.google) {
+                    this.showMessage('Failed to load Google Maps. Please check your internet connection.', 'danger');
+                    return;
+                }
                 
-                this.map = new google.maps.Map(document.getElementById('map'), {
-                    center: {lat: 30.0444, lng: 31.2357},
-                    zoom: 15
-                });
-                
-                this.marker = new google.maps.Marker({
-                    map: this.map,
-                    draggable: true
-                });
-                
-                const searchBox = new google.maps.places.SearchBox(
-                    document.getElementById('locationSearch')
-                );
-                
-                this.map.addListener('bounds_changed', () => {
-                    searchBox.setBounds(this.map.getBounds());
-                });
-                
-                searchBox.addListener('places_changed', () => {
-                    const places = searchBox.getPlaces();
-                    if (places.length === 0) return;
+                try {
+                    this.map = new google.maps.Map(document.getElementById('map'), {
+                        center: {lat: 30.0444, lng: 31.2357},
+                        zoom: 15
+                    });
                     
-                    const place = places[0];
-                    if (!place.geometry) return;
+                    this.marker = new google.maps.Marker({
+                        map: this.map,
+                        draggable: true
+                    });
                     
-                    this.map.setCenter(place.geometry.location);
-                    this.marker.setPosition(place.geometry.location);
-                    this.selectedLocation = {
-                        lat: place.geometry.location.lat(),
-                        lng: place.geometry.location.lng()
-                    };
-                });
-                
-                this.map.addListener('click', (e) => {
-                    this.marker.setPosition(e.latLng);
-                    this.selectedLocation = {
-                        lat: e.latLng.lat(),
-                        lng: e.latLng.lng()
-                    };
-                });
-                
-                this.marker.addListener('dragend', (e) => {
-                    this.selectedLocation = {
-                        lat: e.latLng.lat(),
-                        lng: e.latLng.lng()
-                    };
-                });
+                    const searchBox = new google.maps.places.SearchBox(
+                        document.getElementById('locationSearch')
+                    );
+                    
+                    this.map.addListener('bounds_changed', () => {
+                        searchBox.setBounds(this.map.getBounds());
+                    });
+                    
+                    searchBox.addListener('places_changed', () => {
+                        const places = searchBox.getPlaces();
+                        if (places.length === 0) return;
+                        
+                        const place = places[0];
+                        if (!place.geometry) return;
+                        
+                        this.map.setCenter(place.geometry.location);
+                        this.marker.setPosition(place.geometry.location);
+                        this.selectedLocation = {
+                            lat: place.geometry.location.lat(),
+                            lng: place.geometry.location.lng()
+                        };
+                    });
+                    
+                    this.map.addListener('click', (e) => {
+                        this.marker.setPosition(e.latLng);
+                        this.selectedLocation = {
+                            lat: e.latLng.lat(),
+                            lng: e.latLng.lng()
+                        };
+                    });
+                    
+                    this.marker.addListener('dragend', (e) => {
+                        this.selectedLocation = {
+                            lat: e.latLng.lat(),
+                            lng: e.latLng.lng()
+                        };
+                    });
+                } catch (error) {
+                    console.error('Error initializing map:', error);
+                    this.showMessage('Error initializing Google Maps. Please try again.', 'danger');
+                }
             },
 
             openLocationModal: function() {
                 document.getElementById('locationModal').classList.remove('hidden');
                 document.body.style.overflow = 'hidden';
                 
-                if (!this.map && window.google) {
+                if (!this.map) {
                     this.initMap();
                 }
             },
@@ -1043,9 +1050,11 @@
                             lng: pos.coords.longitude
                         };
                         
-                        this.map.setCenter(location);
-                        this.marker.setPosition(location);
-                        this.selectedLocation = location;
+                        if (this.map) {
+                            this.map.setCenter(location);
+                            this.marker.setPosition(location);
+                            this.selectedLocation = location;
+                        }
                         
                         this.showMessage('Current location set!', 'success');
                     }, (err) => {
@@ -1064,14 +1073,16 @@
                 
                 this.classLocation = this.selectedLocation;
                 
-                const geocoder = new google.maps.Geocoder();
-                geocoder.geocode({ location: this.selectedLocation }, (results, status) => {
-                    let address = 'Custom location selected';
-                    if (status === 'OK' && results[0]) {
-                        address = results[0].formatted_address;
-                    }
-                    document.getElementById('locationPreview').textContent = address;
-                });
+                if (this.map) {
+                    const geocoder = new google.maps.Geocoder();
+                    geocoder.geocode({ location: this.selectedLocation }, (results, status) => {
+                        let address = 'Custom location selected';
+                        if (status === 'OK' && results[0]) {
+                            address = results[0].formatted_address;
+                        }
+                        document.getElementById('locationPreview').textContent = address;
+                    });
+                }
                 
                 this.closeLocationModal();
                 this.showMessage('Class location set successfully!', 'success');
@@ -1110,7 +1121,7 @@
                 });
 
                 function highlight() {
-                    fileUpload.classList.add('bg-blue-50');
+                                        fileUpload.classList.add('bg-blue-50');
                     fileUpload.style.borderColor = 'var(--primary)';
                 }
 
@@ -1502,25 +1513,17 @@
                         allWeeks.forEach(week => {
                             if (week === currentWeek) {
                                 newRow[`Week ${week}`] = matched ? 1 : 0;
+                                newRow[`Timestamp Week ${week}`] = matched ? 
+                                    new Date(matched.timestamp).toLocaleString() : 'N/A';
                             } else {
                                 newRow[`Week ${week}`] = student.weekData?.[week] || 0;
+                                newRow[`Timestamp Week ${week}`] = student[`Timestamp Week ${week}`] || 'N/A';
                             }
                         });
                         
                         newRow['Total Attendance'] = allWeeks.reduce((sum, week) => {
                             return sum + (Number(newRow[`Week ${week}`]) || 0);
                         }, 0);
-                        
-                        allWeeks.forEach(week => {
-                            if (week === currentWeek) {
-                                newRow[`Timestamp Week ${week}`] = matched ? 
-                                    new Date(matched.timestamp).toLocaleString() : 'N/A';
-                            } else if (student[`Timestamp Week ${week}`] !== undefined) {
-                                newRow[`Timestamp Week ${week}`] = student[`Timestamp Week ${week}`];
-                            } else {
-                                newRow[`Timestamp Week ${week}`] = 'N/A';
-                            }
-                        });
                         
                         return newRow;
                     });
@@ -1855,25 +1858,15 @@
                     allWeeks.forEach(w => {
                         if (w === week) {
                             row[`Week ${w}`] = attended ? 1 : 0;
-                        } else if (student.weekData?.[w] !== undefined) {
-                            row[`Week ${w}`] = student.weekData[w];
+                            row[`Timestamp Week ${w}`] = attended ? 
+                                new Date(attendees.find(a => a.id === student.id).timestamp).toLocaleString() : 'N/A';
                         } else {
-                            row[`Week ${w}`] = 0;
+                            row[`Week ${w}`] = student.weekData?.[w] || 0;
+                            row[`Timestamp Week ${w}`] = student[`Timestamp Week ${w}`] || 'N/A';
                         }
                     });
                     
                     row['Total Attendance'] = allWeeks.reduce((sum, w) => sum + (Number(row[`Week ${w}`]) || 0), 0);
-                    
-                    allWeeks.forEach(w => {
-                        if (w === week) {
-                            row[`Timestamp Week ${w}`] = attended ? 
-                                new Date(attendees.find(a => a.id === student.id).timestamp).toLocaleString() : 'N/A';
-                        } else if (student[`Timestamp Week ${w}`] !== undefined) {
-                            row[`Timestamp Week ${w}`] = student[`Timestamp Week ${w}`];
-                        } else {
-                            row[`Timestamp Week ${w}`] = 'N/A';
-                        }
-                    });
                     
                     return row;
                 });
@@ -1931,37 +1924,37 @@
                     this.recognition.interimResults = false;
                     this.recognition.lang = 'en-US';
                     
-                    this.recognition.onresult = function(event) {
+                    this.recognition.onresult = (event) => {
                         const transcript = event.results[0][0].transcript.toLowerCase();
-                        app.handleVoiceCommand(transcript);
+                        this.handleVoiceCommand(transcript);
                     };
                     
-                    this.recognition.onerror = function(event) {
+                    this.recognition.onerror = (event) => {
                         console.error('Voice recognition error', event.error);
                         if (event.error === 'not-allowed') {
-                            app.showMessage('Microphone access denied. Please enable microphone permissions.', 'danger');
+                            this.showMessage('Microphone access denied. Please enable microphone permissions.', 'danger');
                         }
                     };
                     
-                    document.getElementById('voiceBtn').addEventListener('click', function() {
+                    document.getElementById('voiceBtn').addEventListener('click', () => {
                         try {
                             navigator.mediaDevices.getUserMedia({ audio: true })
                                 .then(() => {
-                                    app.recognition.start();
+                                    this.recognition.start();
                                     document.getElementById('voiceBtn').innerHTML = '<i class="fas fa-microphone-slash"></i>';
-                                    app.showMessage('Listening for commands...', 'info');
+                                    this.showMessage('Listening for commands...', 'info');
                                 })
                                 .catch(err => {
                                     console.error('Microphone access error:', err);
-                                    app.showMessage('Microphone access required for voice commands', 'danger');
+                                    this.showMessage('Microphone access required for voice commands', 'danger');
                                 });
                         } catch (error) {
                             console.error('Voice recognition failed:', error);
-                            app.showMessage('Voice commands not supported in your browser', 'danger');
+                            this.showMessage('Voice commands not supported in your browser', 'danger');
                         }
                     });
                     
-                    this.recognition.onend = function() {
+                    this.recognition.onend = () => {
                         document.getElementById('voiceBtn').innerHTML = '<i class="fas fa-microphone"></i>';
                     };
                 } catch (error) {
@@ -2020,6 +2013,12 @@
         document.addEventListener('DOMContentLoaded', function() {
             app.init();
         });
+
+        function initMap() {
+            if (typeof app !== 'undefined') {
+                app.initMap();
+            }
+        }
 
         window.app = app;
     </script>
