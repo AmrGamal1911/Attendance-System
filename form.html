@@ -511,15 +511,11 @@
                     return;
                 }
                 
-                if (this.sessionData.useLocation) {
+                if (this.sessionData.useLocation && this.sessionData.classLocation) {
                     try {
                         const studentLocation = await this.getFreshLocation();
                         if (!studentLocation) {
                             throw new Error('Could not get location');
-                        }
-                        
-                        if (!this.sessionData.classLocation) {
-                            throw new Error('Class location not set');
                         }
                         
                         const distance = this.calculateDistance(
@@ -527,8 +523,11 @@
                             this.sessionData.classLocation
                         );
                         
-                        if (distance > this.sessionData.locationDistance) {
-                            this.showMessage(`You must be within ${this.sessionData.locationDistance}m of the class (${Math.round(distance)}m away)`, 'danger');
+                        const accuracyBuffer = studentLocation.accuracy + 10; // Add 10m buffer
+                        const maxAllowedDistance = this.sessionData.locationDistance + accuracyBuffer;
+                        
+                        if (distance > maxAllowedDistance) {
+                            this.showMessage(`You must be within ${this.sessionData.locationDistance}m of the class (approximately ${Math.round(distance)}m away)`, 'danger');
                             return;
                         }
                     } catch (error) {
@@ -538,7 +537,6 @@
                     }
                 }
                 
-                // Get fresh attendee list from Firebase
                 const attendeeSnap = await window.dbGet(this.attendeesRef);
                 const attendees = attendeeSnap.val() || {};
                 const attendeeList = Object.values(attendees);
