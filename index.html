@@ -653,24 +653,6 @@
             padding: 0.5rem;
         }
         
-        .session-feedback {
-            text-align: center;
-            padding: 2rem;
-            border-radius: var(--border-radius);
-            background: #f8fafc;
-            margin-bottom: 1.5rem;
-        }
-        
-        .session-feedback h2 {
-            color: var(--success);
-            margin-bottom: 1rem;
-        }
-        
-        .session-feedback p {
-            color: #6b7280;
-            margin-bottom: 0.5rem;
-        }
-        
         @keyframes slideDown {
             from {
                 opacity: 0;
@@ -793,6 +775,14 @@
             font-size: 0.8rem;
             border: none;
             cursor: pointer;
+        }
+        
+        .session-feedback {
+            text-align: center;
+            padding: 2rem;
+            border-radius: var(--border-radius);
+            background: #f8fafc;
+            margin-bottom: 1.5rem;
         }
     </style>
 </head>
@@ -1602,10 +1592,18 @@
 
             endSession: async function(sessionId) {
                 try {
-                    // Update Firebase
-                    await window.dbSet(window.dbRef(window.database, `sessions/${sessionId}/active`), false);
-                    
-                    // Update UI
+                    const sessionRef = window.dbRef(window.database, `sessions/${sessionId}/active`);
+                    await window.dbSet(sessionRef, false);
+                    this.showMessage('Session ended successfully.', 'success');
+
+                    // Update local session object
+                    const sessionIndex = this.currentSessions.findIndex(s => s.id === sessionId);
+                    if (sessionIndex !== -1) {
+                        this.currentSessions[sessionIndex].active = false;
+                        this.updateSessionHistory(this.currentSessions[sessionIndex]);
+                    }
+
+                    // Update UI in main dashboard if session card exists
                     const sessionCard = document.getElementById(`sessionCard_${sessionId}`);
                     if (sessionCard) {
                         sessionCard.innerHTML = `
@@ -1613,36 +1611,23 @@
                                 <i class="fas fa-calendar-times"></i>
                                 <span>Session Ended</span>
                             </div>
-                            
+
                             <div class="session-feedback">
                                 <h2><i class="fas fa-check-circle"></i> Session Ended</h2>
-                                <p>You have ended this attendance session.</p>
+                                <p>This attendance session has ended.</p>
                                 <p>You can export the attendance report below.</p>
-                                
+
                                 <button onclick="app.exportAttendanceReport('${sessionId}')" class="btn btn-success mt-3">
                                     <i class="fas fa-download"></i> Export Final Report
                                 </button>
                             </div>
                         `;
                     }
-                    
-                    // Remove from current sessions
-                    this.currentSessions = this.currentSessions.filter(s => s.id !== sessionId);
-                    
-                    // Update local storage and history
-                    const sessions = JSON.parse(localStorage.getItem('sessions') || {};
-                    if (sessions[sessionId]) {
-                        sessions[sessionId].active = false;
-                        localStorage.setItem('sessions', JSON.stringify(sessions));
-                        this.updateSessionHistory(sessions[sessionId]);
-                    }
-                    
-                    this.showMessage('Session ended successfully.', 'success');
+
                     this.clearSessionInputs();
-                    
                 } catch (error) {
                     console.error('Error ending session:', error);
-                    this.showMessage('Failed to end session', 'danger');
+                    this.showMessage('Failed to end session.', 'danger');
                 }
             },
 
@@ -1761,15 +1746,10 @@
                             <div class="text-sm text-gray-500">
                                 ${new Date(session.date).toLocaleString()} | 
                                 ${session.attendees}/${session.maxAttendees} students
-                                ${session.active ? '<span style="color: var(--danger);">(Active)</span>' : ''}
+                                ${session.active ? '<span class="text-green-500">(Active)</span>' : ''}
                             </div>
                         </div>
                         <div class="session-actions">
-                            ${session.active ? `
-                            <button onclick="app.endSession('${session.id}')" class="btn btn-danger" title="End Session">
-                                <i class="fas fa-stop-circle"></i>
-                            </button>
-                            ` : ''}
                             <button onclick="app.generateSessionQR('${session.id}')" class="btn btn-secondary" title="QR Code">
                                 <i class="fas fa-qrcode"></i>
                             </button>
@@ -1779,6 +1759,11 @@
                             <button onclick="app.downloadSessionReport('${session.id}')" class="btn btn-secondary" title="Download Report">
                                 <i class="fas fa-download"></i>
                             </button>
+                            ${session.active ? `
+                                <button onclick="app.endSession('${session.id}')" class="btn btn-danger" title="End Session">
+                                    <i class="fas fa-stop-circle"></i>
+                                </button>
+                            ` : ''}
                         </div>
                     </div>
                 `).join('');
