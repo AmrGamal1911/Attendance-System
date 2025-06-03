@@ -582,30 +582,22 @@
                 const currentIP = await fetch('https://api.ipify.org?format=json').then(r => r.json()).then(data => data.ip).catch(() => 'unknown');
 
                 let isTokenMisused = false;
-                let originalStudentId = tokenData?.id;
                 let isSecondUser = false;
 
                 if (!tokenData) {
-                    // First time using this token - initialize it
+                    // First time using this token - initialize it and mark as used immediately
                     await window.dbSet(window.dbRef(window.database, tokenPath), {
                         id: studentId,
                         ip: currentIP,
                         timestamp: Date.now(),
-                        used: false,
+                        used: true,  // Mark as used immediately
                         flagged: false
                     });
                 } else {
                     // Check if token was already used for a different student
-                    if (tokenData.used && tokenData.id !== studentId) {
+                    if (tokenData.id !== studentId) {
                         isTokenMisused = true;
                         isSecondUser = true;
-                    } else if (!tokenData.used && tokenData.id !== studentId) {
-                        isTokenMisused = true;
-                        isSecondUser = true;
-                    } else if (!tokenData.used && tokenData.id === studentId) {
-                        // Acceptable case
-                    } else if (tokenData.used && tokenData.id === studentId) {
-                        // Re-scanning self again - acceptable
                     }
                 }
 
@@ -652,8 +644,14 @@
                         .catch(() => 'unknown');
 
                     // Check for IP sharing (for detection only)
-                    const ipSharedWith = attendeeList.filter(a => a.ip === ipAddress && a.id !== studentId);
-                    if (ipSharedWith.length > 0) {
+                    // Exclude TA's IP address from IP sharing detection
+                    const ipSharedWith = attendeeList.filter(a => 
+                        a.ip === ipAddress && 
+                        a.id !== studentId && 
+                        ipAddress !== this.sessionData.taIpAddress // Don't count TA's IP
+                    );
+                    
+                    if (ipSharedWith.length > 0 && ipAddress !== this.sessionData.taIpAddress) {
                         console.log(`IP address ${ipAddress} shared with students:`, ipSharedWith.map(a => a.id));
                     }
 
@@ -663,14 +661,13 @@
                         section: student.section || '',
                         timestamp: Date.now(),
                         ip: ipAddress,
-                        token: this.currentToken
+                        token: this.currentToken,
+                        isFromTaIp: ipAddress === this.sessionData.taIpAddress // Flag if attendance is from TA's IP
                     };
                     
                     await window.dbPush(this.attendeesRef, newAttendee);
                     
-                    // Mark token as used
-                    await window.dbSet(window.dbRef(window.database, tokenPath + "/used"), true);
-                    await window.dbSet(window.dbRef(window.database, tokenPath + "/id"), student.id);
+                    // No need to mark token as used again since we do it at initialization
                     
                     this.showMessage(`Attendance recorded successfully for ${student.name}!`, 'success');
                     document.getElementById('student_id').value = '';
