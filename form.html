@@ -394,29 +394,127 @@
             connectionTimeout: null,
             currentIP: null,
 
-            init: async function() {
+            init: function() {
+                this.currentSessionId = new URLSearchParams(window.location.search).get('session');
+                
+                if (!this.currentSessionId) {
+                    this.showNoSession();
+                    return;
+                }
+
+                this.initializeSession();
+                
+                document.getElementById('attendanceForm').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.submitAttendance();
+                });
+            },
+
+            async initializeSession() {
+                this.updateConnectionStatus('connecting');
+                
                 try {
-                    this.currentSessionId = new URLSearchParams(window.location.search).get('session');
-                    if (!this.currentSessionId) {
-                        this.showNoSession();
-                        return;
-                    }
-
-                    // Set up timeout and event listener early
-                    this.setupTimeout();
-                    this.setupFormListener();
+                    this.sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
+                    this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
                     
-                    // Initialize session in parallel with IP fetch
-                    const [currentIP] = await Promise.all([
-                        this.getIP(),
-                        this.initializeSession()
-                    ]);
+                    // Get current IP
+                    const currentIP = await fetch('https://api.ipify.org?format=json')
+                        .then(res => res.json())
+                        .then(data => data.ip)
+                        .catch(() => 'unknown');
 
-                    // Store IP for reuse
-                    this.currentIP = currentIP;
+                    window.dbOnValue(this.sessionRef, async (snapshot) => {
+                        try {
+                            const data = snapshot.val();
+                            
+                            if (!data) {
+                                this.showNoSession();
+                                return;
+                            }
+                            
+                            this.sessionData = data;
+
+                            // Block TA's IP
+                            if (currentIP === this.sessionData.taIP) {
+                                this.showMessage("⚠️ Teaching Assistant device cannot submit attendance.", "danger");
+                                document.getElementById('submitBtn').disabled = true;
+                                return;
+                            }
+                            
+                            if (!this.sessionData.active) {
+                                this.showClosedSession();
+                                return;
+                            }
+
+                            // Check and assign token
+                            const tokensSnap = await window.dbGet(window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens`));
+                            const tokens = tokensSnap.val() || {};
+
+                            let assignedToken = null;
+                            const deviceId = localStorage.getItem('deviceId') || crypto.randomUUID();
+                            localStorage.setItem('deviceId', deviceId);
+
+                            // Try reusing existing token
+                            for (const [key, data] of Object.entries(tokens)) {
+                                if (data.issuedToDevice === deviceId) {
+                                    assignedToken = { key, data };
+                                    break;
+                                }
+                            }
+
+                            // Assign new token if available
+                            if (!assignedToken) {
+                                const available = Object.entries(tokens).find(([_, d]) => !d.issuedToDevice);
+                                if (available) {
+                                    const [token, data] = available;
+                                    const newData = {
+                                        ...data,
+                                        issuedToDevice: deviceId,
+                                        issuedToIP: currentIP,
+                                        issuedAt: Date.now()
+                                    };
+                                    await window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens/${token}`), newData);
+                                    assignedToken = { key: token, data: newData };
+                                } else {
+                                    this.showMessage("❌ No tokens available. Attendance is closed.", "danger");
+                                    document.getElementById('submitBtn').disabled = true;
+                                    return;
+                                }
+                            }
+
+                            this.currentToken = assignedToken.key;
+                            
+                            this.showActiveSession();
+                            this.updateConnectionStatus('connected');
+                            
+                            if (this.sessionData.password) {
+                                document.getElementById('passwordField').classList.remove('hidden');
+                            }
+                        } catch (error) {
+                            console.error('Error in session listener:', error);
+                            this.showMessage('Error processing session data', 'danger');
+                            this.updateConnectionStatus('error');
+                        }
+                    });
+                    
+                    window.dbOnValue(this.attendeesRef, (snapshot) => {
+                        const attendees = snapshot.val() || {};
+                        const attendeeList = Object.values(attendees);
+                        
+                        if (this.sessionData) {
+                            this.sessionData.attendees = attendeeList;
+                            this.updateAttendanceCount();
+                            
+                            if (attendeeList.length >= this.sessionData.maxAttendees && this.sessionData.active) {
+                                window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/active`), false);
+                            }
+                        }
+                    });
+                    
                 } catch (error) {
-                    console.error('Initialization error:', error);
-                    this.handleError('Failed to initialize session');
+                    console.error('Failed to initialize session:', error);
+                    this.showMessage('Failed to connect to session', 'danger');
+                    this.updateConnectionStatus('error');
                 }
             },
 
@@ -443,104 +541,6 @@
                 } catch (error) {
                     console.error('IP fetch error:', error);
                     return 'unknown';
-                }
-            },
-
-            async initializeSession() {
-                this.sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
-                this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
-
-                // Set up session listener
-                window.dbOnValue(this.sessionRef, this.handleSessionUpdate.bind(this));
-                
-                // Set up attendees listener
-                window.dbOnValue(this.attendeesRef, this.handleAttendeesUpdate.bind(this));
-            },
-
-            async handleSessionUpdate(snapshot) {
-                try {
-                    const data = snapshot.val();
-                    if (!data) {
-                        this.showNoSession();
-                        return;
-                    }
-
-                    this.sessionData = data;
-
-                    // Check TA IP
-                    if (this.currentIP === this.sessionData.taIP) {
-                        this.handleError('Teaching Assistant device cannot submit attendance');
-                        return;
-                    }
-
-                    if (!this.sessionData.active) {
-                        this.showClosedSession();
-                        return;
-                    }
-
-                    await this.handleTokenAssignment();
-                    
-                    this.showActiveSession();
-                    this.updateConnectionStatus('connected');
-                    
-                    if (this.sessionData.password) {
-                        document.getElementById('passwordField').classList.remove('hidden');
-                    }
-                } catch (error) {
-                    console.error('Session update error:', error);
-                    this.handleError('Error processing session data');
-                }
-            },
-
-            async handleTokenAssignment() {
-                const tokensSnap = await window.dbGet(window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens`));
-                const tokens = tokensSnap.val() || {};
-
-                const deviceId = localStorage.getItem('deviceId') || crypto.randomUUID();
-                localStorage.setItem('deviceId', deviceId);
-
-                // Try to find existing token
-                let assignedToken = Object.entries(tokens).find(([_, data]) => data.issuedToDevice === deviceId);
-                
-                // If no existing token, get a new one
-                if (!assignedToken) {
-                    assignedToken = Object.entries(tokens).find(([_, data]) => !data.issuedToDevice);
-                    
-                    if (!assignedToken) {
-                        this.handleError('No tokens available. Attendance is closed');
-                        return;
-                    }
-
-                    const [token, data] = assignedToken;
-                    await window.dbSet(
-                        window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens/${token}`),
-                        {
-                            ...data,
-                            issuedToDevice: deviceId,
-                            issuedToIP: this.currentIP,
-                            issuedAt: Date.now()
-                        }
-                    );
-                }
-
-                this.currentToken = assignedToken[0];
-            },
-
-            handleAttendeesUpdate(snapshot) {
-                try {
-                    const attendees = snapshot.val() || {};
-                    const attendeeList = Object.values(attendees);
-                    
-                    if (this.sessionData) {
-                        this.sessionData.attendees = attendeeList;
-                        this.updateAttendanceCount();
-                        
-                        if (attendeeList.length >= this.sessionData.maxAttendees && this.sessionData.active) {
-                            window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/active`), false);
-                        }
-                    }
-                } catch (error) {
-                    console.error('Attendees update error:', error);
                 }
             },
 
