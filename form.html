@@ -314,6 +314,10 @@
                 font-size: 1.5rem;
             }
         }
+
+        .text-red-500 {
+            color: #ef4444;
+        }
     </style>
 </head>
 <body>
@@ -382,21 +386,16 @@
             lastLocation: null,
             locationAttempts: 0,
             maxLocationAttempts: 2,
-            deviceId: null,
             currentToken: null,
-            tokenMeta: null,
 
             init: function() {
                 this.currentSessionId = new URLSearchParams(window.location.search).get('session');
+                this.currentToken = this.generateToken();
                 
                 if (!this.currentSessionId) {
                     this.showNoSession();
                     return;
                 }
-                
-                // Initialize device ID
-                this.deviceId = localStorage.getItem('deviceId') || crypto.randomUUID();
-                localStorage.setItem('deviceId', this.deviceId);
                 
                 this.initializeSession();
                 
@@ -406,57 +405,18 @@
                 });
             },
 
-            async initializeSession() {
+            generateToken: function() {
+                // Generate a unique token for this device/session
+                return 'token_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now().toString(36);
+            },
+
+            initializeSession: function() {
                 this.updateConnectionStatus('connecting');
                 
                 try {
                     this.sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
                     this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
                     
-                    // Get user's IP address
-                    const userIP = await fetch('https://api.ipify.org?format=json')
-                        .then(res => res.json())
-                        .then(data => data.ip)
-                        .catch(() => 'unknown');
-                    
-                    // Assign or reuse token
-                    const tokenRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens`);
-                    const tokenSnap = await window.dbGet(tokenRef);
-                    const tokens = tokenSnap.val() || {};
-                    
-                    let assignedToken = null;
-                    
-                    // Check if device already has a token
-                    for (const [key, data] of Object.entries(tokens)) {
-                        if (data.issuedToDevice === this.deviceId) {
-                            assignedToken = { key, data };
-                            break;
-                        }
-                    }
-                    
-                    // Assign new token if none exists for this device
-                    if (!assignedToken) {
-                        const available = Object.entries(tokens).find(([_, d]) => !d.issuedToDevice);
-                        if (available) {
-                            const [token, data] = available;
-                            const newData = {
-                                ...data,
-                                issuedToDevice: this.deviceId,
-                                issuedToIP: userIP,
-                                issuedAt: Date.now()
-                            };
-                            await window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens/${token}`), newData);
-                            assignedToken = { key: token, data: newData };
-                        } else {
-                            this.showMessage("No available tokens. Contact instructor.", "danger");
-                            return;
-                        }
-                    }
-                    
-                    this.currentToken = assignedToken.key;
-                    this.tokenMeta = assignedToken.data;
-                    
-                    // Listen for session data
                     window.dbOnValue(this.sessionRef, (snapshot) => {
                         const data = snapshot.val();
                         
@@ -480,7 +440,6 @@
                         }
                     });
                     
-                    // Listen for attendees
                     window.dbOnValue(this.attendeesRef, (snapshot) => {
                         const attendees = snapshot.val() || {};
                         const attendeeList = Object.values(attendees);
@@ -565,32 +524,6 @@
                     return;
                 }
                 
-                // Validate token and check for suspicious activity
-                const tokenPath = `sessions/${this.currentSessionId}/tokens/${this.currentToken}`;
-                const tokenSnap = await window.dbGet(window.dbRef(window.database, tokenPath));
-                const tokenData = tokenSnap.val();
-
-                const currentIP = await fetch('https://api.ipify.org?format=json')
-                    .then(res => res.json())
-                    .then(data => data.ip)
-                    .catch(() => 'unknown');
-
-                let isSuspicious = false;
-
-                if (!tokenData) {
-                    isSuspicious = true;
-                } else {
-                    if (tokenData.used) isSuspicious = true;
-                    if (tokenData.issuedToDevice !== this.deviceId || tokenData.issuedToIP !== currentIP) {
-                        isSuspicious = true;
-                    }
-                }
-
-                // Flag suspicious activity but don't block submission
-                if (isSuspicious) {
-                    await window.dbSet(window.dbRef(window.database, tokenPath + "/flagged"), true);
-                }
-                
                 // Location verification with retry logic
                 if (this.sessionData.useLocation && this.sessionData.classLocation) {
                     this.locationAttempts = 0;
@@ -642,6 +575,49 @@
                     }
                 }
                 
+                // Token verification
+                const tokenPath = `sessions/${this.currentSessionId}/tokens/${this.currentToken}`;
+                const tokenSnap = await window.dbGet(window.dbRef(window.database, tokenPath));
+                const tokenData = tokenSnap.val();
+                const currentIP = await fetch('https://api.ipify.org?format=json').then(r => r.json()).then(data => data.ip).catch(() => 'unknown');
+
+                let isTokenMisused = false;
+                let originalStudentId = tokenData?.id;
+                let isSecondUser = false;
+
+                if (!tokenData) {
+                    // First time using this token - initialize it
+                    await window.dbSet(window.dbRef(window.database, tokenPath), {
+                        id: studentId,
+                        ip: currentIP,
+                        timestamp: Date.now(),
+                        used: false,
+                        flagged: false
+                    });
+                } else {
+                    // Check if token was already used for a different student
+                    if (tokenData.used && tokenData.id !== studentId) {
+                        isTokenMisused = true;
+                        isSecondUser = true;
+                    } else if (!tokenData.used && tokenData.id !== studentId) {
+                        isTokenMisused = true;
+                        isSecondUser = true;
+                    } else if (!tokenData.used && tokenData.id === studentId) {
+                        // Acceptable case
+                    } else if (tokenData.used && tokenData.id === studentId) {
+                        // Re-scanning self again - acceptable
+                    }
+                }
+
+                if (isTokenMisused && isSecondUser) {
+                    // Flag token
+                    await window.dbSet(window.dbRef(window.database, tokenPath + "/flagged"), true);
+                    await window.dbSet(window.dbRef(window.database, tokenPath + "/secondStudentId"), studentId);
+
+                    this.showMessage("⚠️ Token already used by another student. Attendance not counted.", "danger");
+                    return; // DO NOT submit attendance
+                }
+                
                 const attendeeSnap = await window.dbGet(this.attendeesRef);
                 const attendees = attendeeSnap.val() || {};
                 const attendeeList = Object.values(attendees);
@@ -688,6 +664,7 @@
                     
                     // Mark token as used
                     await window.dbSet(window.dbRef(window.database, tokenPath + "/used"), true);
+                    await window.dbSet(window.dbRef(window.database, tokenPath + "/id"), student.id);
                     
                     this.showMessage(`Attendance recorded successfully for ${student.name}!`, 'success');
                     document.getElementById('student_id').value = '';
