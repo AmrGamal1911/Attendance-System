@@ -22,7 +22,7 @@
 
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
-        import { getDatabase, ref, set, onValue, push, serverTimestamp, off } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
+        import { getDatabase, ref, set, onValue, push, serverTimestamp, off, get } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
 
         const firebaseConfig = {
             apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
@@ -43,6 +43,7 @@
         window.dbPush = push;
         window.dbServerTimestamp = serverTimestamp;
         window.dbOff = off;
+        window.dbGet = get;
     </script>
     
     <style>
@@ -1274,6 +1275,22 @@
                     const finalizeSession = async () => {
                         try {
                             const sessionId = 'session_' + Date.now();
+                            
+                            // Generate tokens for each student
+                            const tokenList = {};
+                            app.rosterData.forEach(student => {
+                                const token = crypto.randomUUID();
+                                tokenList[token] = {
+                                    id: student.id,
+                                    name: student.name,
+                                    issuedToDevice: null,
+                                    issuedToIP: null,
+                                    used: false,
+                                    flagged: false,
+                                    issuedAt: Date.now()
+                                };
+                            });
+                            
                             const newSession = {
                                 id: sessionId,
                                 subject: app.subjectName,
@@ -1289,7 +1306,8 @@
                                 locationDistance,
                                 deviceId: app.deviceId,
                                 existingWeeks: [...app.existingWeeks],
-                                maxExistingWeek: app.maxExistingWeek
+                                maxExistingWeek: app.maxExistingWeek,
+                                tokens: tokenList
                             };
                             
                             if (useLocation && app.classLocation) {
@@ -1510,7 +1528,7 @@
                 attendanceListDiv.innerHTML = attendeesHtml;
             },
 
-            exportAttendanceReport: function(sessionId) {
+            async exportAttendanceReport(sessionId) {
                 const session = this.currentSessions.find(s => s.id === sessionId) || 
                               JSON.parse(localStorage.getItem('sessions'))?.[sessionId];
                 
@@ -1525,6 +1543,10 @@
                 const subjectName = session.subject;
                 const allWeeks = [...(session.existingWeeks || []), currentWeek].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
                 
+                // Load tokens
+                const tokensSnap = await window.dbGet(window.dbRef(window.database, `sessions/${sessionId}/tokens`));
+                const tokenMap = tokensSnap.val() || {};
+                
                 // Build IP map for duplicate detection
                 const ipMap = {};
                 attendees.forEach(a => {
@@ -1532,12 +1554,23 @@
                     if (!ipMap[a.ip]) ipMap[a.ip] = [];
                     ipMap[a.ip].push(a.id);
                 });
+                
+                const ipNotes = {};
+                Object.entries(ipMap).forEach(([ip, ids]) => {
+                    if (ids.length > 1) {
+                        ids.forEach(id => {
+                            ipNotes[id] = `Same IP with ${ids.filter(x => x !== id).join(', ')}`;
+                        });
+                    }
+                });
 
                 let reportData = [];
                 
                 if (session.existingWeeks?.length > 0) {
                     reportData = roster.map(student => {
                         const matched = attendees.find(a => a.id === student.id);
+                        const tokenEntry = Object.values(tokenMap).find(t => t.id === student.id);
+                        
                         const newRow = {
                             'Student ID': student.id,
                             'Name': student.name,
@@ -1561,10 +1594,14 @@
 
                         // Add IP note if applicable
                         if (matched) {
-                            const others = ipMap[matched.ip]?.filter(id => id !== student.id) || [];
-                            if (others.length > 0) {
-                                newRow['Note'] = `Same IP with ${others.join(', ')}`;
-                            }
+                            newRow['IP Note'] = ipNotes[matched.id] || '';
+                        }
+                        
+                        // Add token status
+                        if (tokenEntry) {
+                            newRow['Token Status'] = tokenEntry.flagged ? 'FLAGGED' : 'Valid';
+                            newRow['Token Issued To'] = tokenEntry.issuedToDevice ? 
+                                `Device: ${tokenEntry.issuedToDevice.slice(0, 8)}...` : 'Not issued';
                         }
                         
                         return newRow;
@@ -1572,6 +1609,8 @@
                 } else {
                     reportData = roster.map(student => {
                         const matched = attendees.find(a => a.id === student.id);
+                        const tokenEntry = Object.values(tokenMap).find(t => t.id === student.id);
+                        
                         const row = {
                             'Student ID': student.id,
                             'Name': student.name,
@@ -1584,10 +1623,14 @@
 
                         // Add IP note if applicable
                         if (matched) {
-                            const others = ipMap[matched.ip]?.filter(id => id !== student.id) || [];
-                            if (others.length > 0) {
-                                row['Note'] = `Same IP with ${others.join(', ')}`;
-                            }
+                            row['IP Note'] = ipNotes[matched.id] || '';
+                        }
+                        
+                        // Add token status
+                        if (tokenEntry) {
+                            row['Token Status'] = tokenEntry.flagged ? 'FLAGGED' : 'Valid';
+                            row['Token Issued To'] = tokenEntry.issuedToDevice ? 
+                                `Device: ${tokenEntry.issuedToDevice.slice(0, 8)}...` : 'Not issued';
                         }
                         
                         return row;
@@ -1606,10 +1649,10 @@
                     columnOrder.push(`Timestamp Week ${week}`);
                 });
 
-                // Add Note column if any IP duplicates exist
-                if (reportData.some(row => row.Note)) {
-                    columnOrder.push('Note');
-                }
+                // Add additional columns
+                columnOrder.push('IP Note');
+                columnOrder.push('Token Status');
+                columnOrder.push('Token Issued To');
                 
                 const reorderedData = reportData.map(row => {
                     const newRow = {};
@@ -1850,7 +1893,7 @@
                     });
             },
 
-            downloadSessionReport: function(sessionId) {
+            async downloadSessionReport(sessionId) {
                 const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
                 const session = sessions[sessionId];
                 
@@ -1865,6 +1908,10 @@
                 const subjectName = session.subject;
                 const allWeeks = [...(session.existingWeeks || []), week].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
                 
+                // Load tokens
+                const tokensSnap = await window.dbGet(window.dbRef(window.database, `sessions/${sessionId}/tokens`));
+                const tokenMap = tokensSnap.val() || {};
+                
                 // Build IP map for duplicate detection
                 const ipMap = {};
                 attendees.forEach(a => {
@@ -1872,9 +1919,20 @@
                     if (!ipMap[a.ip]) ipMap[a.ip] = [];
                     ipMap[a.ip].push(a.id);
                 });
+                
+                const ipNotes = {};
+                Object.entries(ipMap).forEach(([ip, ids]) => {
+                    if (ids.length > 1) {
+                        ids.forEach(id => {
+                            ipNotes[id] = `Same IP with ${ids.filter(x => x !== id).join(', ')}`;
+                        });
+                    }
+                });
 
                 const data = roster.map(student => {
-                    const attended = attendees.some(a => a.id === student.id);
+                    const matched = attendees.find(a => a.id === student.id);
+                    const tokenEntry = Object.values(tokenMap).find(t => t.id === student.id);
+                    
                     const row = {
                         'Student ID': student.id,
                         'Name': student.name,
@@ -1883,9 +1941,9 @@
                     
                     allWeeks.forEach(w => {
                         if (w === week) {
-                            row[`Week ${w}`] = attended ? 1 : 0;
-                            row[`Timestamp Week ${w}`] = attended ? 
-                                new Date(attendees.find(a => a.id === student.id).timestamp).toLocaleString() : 'N/A';
+                            row[`Week ${w}`] = matched ? 1 : 0;
+                            row[`Timestamp Week ${w}`] = matched ? 
+                                new Date(matched.timestamp).toLocaleString() : 'N/A';
                         } else {
                             row[`Week ${w}`] = student.weekData?.[w] || 0;
                             row[`Timestamp Week ${w}`] = student[`Timestamp Week ${w}`] || 'N/A';
@@ -1895,12 +1953,15 @@
                     row['Total Attendance'] = allWeeks.reduce((sum, w) => sum + (Number(row[`Week ${w}`]) || 0), 0);
 
                     // Add IP note if applicable
-                    if (attended) {
-                        const matched = attendees.find(a => a.id === student.id);
-                        const others = ipMap[matched.ip]?.filter(id => id !== student.id) || [];
-                        if (others.length > 0) {
-                            row['Note'] = `Same IP with ${others.join(', ')}`;
-                        }
+                    if (matched) {
+                        row['IP Note'] = ipNotes[matched.id] || '';
+                    }
+                    
+                    // Add token status
+                    if (tokenEntry) {
+                        row['Token Status'] = tokenEntry.flagged ? 'FLAGGED' : 'Valid';
+                        row['Token Issued To'] = tokenEntry.issuedToDevice ? 
+                            `Device: ${tokenEntry.issuedToDevice.slice(0, 8)}...` : 'Not issued';
                     }
                     
                     return row;
@@ -1918,10 +1979,10 @@
                     columnOrder.push(`Timestamp Week ${week}`);
                 });
 
-                // Add Note column if any IP duplicates exist
-                if (data.some(row => row.Note)) {
-                    columnOrder.push('Note');
-                }
+                // Add additional columns
+                columnOrder.push('IP Note');
+                columnOrder.push('Token Status');
+                columnOrder.push('Token Issued To');
                 
                 const reorderedData = data.map(row => {
                     const newRow = {};
