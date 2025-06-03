@@ -1279,6 +1279,13 @@
                     const finalizeSession = async () => {
                         try {
                             const sessionId = 'session_' + Date.now();
+                            
+                            // Get TA's IP address
+                            const taIpAddress = await fetch('https://api.ipify.org?format=json')
+                                .then(r => r.json())
+                                .then(data => data.ip)
+                                .catch(() => 'unknown');
+
                             const newSession = {
                                 id: sessionId,
                                 subject: app.subjectName,
@@ -1294,7 +1301,8 @@
                                 locationDistance,
                                 deviceId: app.deviceId,
                                 existingWeeks: [...app.existingWeeks],
-                                maxExistingWeek: app.maxExistingWeek
+                                maxExistingWeek: app.maxExistingWeek,
+                                taIpAddress: taIpAddress // Store TA's IP address
                             };
                             
                             if (useLocation && app.classLocation) {
@@ -1548,7 +1556,7 @@
                 // Build IP map for duplicate detection
                 const ipMap = {};
                 attendees.forEach(a => {
-                    if (!a.ip) return;
+                    if (!a.ip || a.ip === session.taIpAddress) return; // Skip TA's IP
                     if (!ipMap[a.ip]) ipMap[a.ip] = [];
                     ipMap[a.ip].push(a.id);
                 });
@@ -1581,8 +1589,8 @@
                             return sum + (Number(newRow[`Week ${week}`]) || 0);
                         }, 0);
 
-                        // Add IP note if applicable
-                        const ipNote = ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
+                        // Add IP note if applicable (excluding TA's IP)
+                        const ipNote = matched?.ip !== session.taIpAddress && ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
                             `IP shared with IDs: ${ipMap[matched.ip].filter(id => id !== student.id).join(', ')}` : '';
                             
                         // Add token note if applicable
@@ -1611,8 +1619,8 @@
                                 new Date(matched.timestamp).toLocaleString() : 'N/A'
                         };
 
-                        // Add IP note if applicable
-                        const ipNote = ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
+                        // Add IP note if applicable (excluding TA's IP)
+                        const ipNote = matched?.ip !== session.taIpAddress && ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
                             `IP shared with IDs: ${ipMap[matched.ip].filter(id => id !== student.id).join(', ')}` : '';
                             
                         // Add token note if applicable
