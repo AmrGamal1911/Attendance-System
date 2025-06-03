@@ -406,8 +406,29 @@
             },
 
             generateToken: function() {
-                // Generate a unique token for this device/session
-                return 'token_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now().toString(36);
+                // Generate a unique device identifier using available browser data
+                const deviceData = {
+                    userAgent: navigator.userAgent,
+                    language: navigator.language,
+                    platform: navigator.platform,
+                    screenResolution: `${window.screen.width}x${window.screen.height}`,
+                    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    sessionTime: Date.now()
+                };
+                
+                // Create a hash from the device data
+                const deviceHash = this.hashCode(JSON.stringify(deviceData));
+                return `token_${deviceHash}_${Date.now().toString(36)}`;
+            },
+
+            hashCode: function(str) {
+                let hash = 0;
+                for (let i = 0; i < str.length; i++) {
+                    const char = str.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash = hash & hash; // Convert to 32-bit integer
+                }
+                return Math.abs(hash).toString(36);
             },
 
             initializeSession: function() {
@@ -590,6 +611,7 @@
                         id: studentId,
                         ip: currentIP,
                         timestamp: Date.now(),
+                        deviceHash: this.currentToken.split('_')[1], // Store device hash for verification
                         used: true,
                         flagged: false
                     });
@@ -602,6 +624,7 @@
                         await window.dbSet(window.dbRef(window.database, tokenPath + "/flagged"), true);
                         await window.dbSet(window.dbRef(window.database, tokenPath + "/secondStudentId"), studentId);
                         await window.dbSet(window.dbRef(window.database, tokenPath + "/secondStudentTimestamp"), Date.now());
+                        await window.dbSet(window.dbRef(window.database, tokenPath + "/secondDeviceHash"), this.currentToken.split('_')[1]);
 
                         this.showMessage("⚠️ Token already used by another student. Attendance not counted.", "danger");
                         return; // DO NOT submit attendance for second student
