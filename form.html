@@ -591,11 +591,18 @@
                 submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
                 
                 try {
+                    // Get student's IP address
+                    const ipAddress = await fetch('https://api.ipify.org?format=json')
+                        .then(res => res.json())
+                        .then(data => data.ip)
+                        .catch(() => 'unknown');
+
                     const newAttendee = {
                         id: student.id,
                         name: student.name,
                         section: student.section || '',
-                        timestamp: Date.now()
+                        timestamp: Date.now(),
+                        ip: ipAddress
                     };
                     
                     await window.dbPush(this.attendeesRef, newAttendee);
