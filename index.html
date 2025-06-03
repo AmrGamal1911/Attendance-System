@@ -994,13 +994,33 @@
             },
 
             initializeApp: function() {
-                const deviceId = localStorage.getItem('deviceId') || Date.now().toString();
-                localStorage.setItem('deviceId', deviceId);
+                const rosterInput = document.getElementById('roster');
+                const fileNameSpan = document.getElementById('fileName');
+                const uploadForm = document.getElementById('uploadForm');
+                const rosterInfoDiv = document.getElementById('rosterInfo');
+                const studentCountSpan = document.getElementById('studentCount');
+                const weekCountSpan = document.getElementById('weekCount');
+                const sessionForm = document.getElementById('sessionForm');
+                const createSessionBtn = document.getElementById('createSessionBtn');
                 
-                // Initialize map if needed
-                if (window.google) {
-                    this.initMap();
-                }
+                rosterInput.addEventListener('change', function(e) {
+                    if (this.files.length > 0) {
+                        const file = this.files[0];
+                        fileNameSpan.textContent = file.name;
+                        
+                        const subjectFromFile = file.name.replace(/\.[^/.]+$/, "").replace(/_/g, ' ');
+                        document.getElementById('subjectNameInput').value = subjectFromFile;
+                    } else {
+                        fileNameSpan.textContent = 'No file chosen';
+                    }
+                });
+                
+                uploadForm.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.processRoster();
+                });
+                
+                sessionForm.addEventListener('submit', (e) => this.createSession(e));
             },
 
             processRoster: function() {
@@ -1098,21 +1118,123 @@
                 document.getElementById('createSessionBtn').disabled = false;
             },
 
-            async createSession() {
-                const sessionData = this.validateAndGetSessionData();
-                if (!sessionData) return;
+            async createSession(e) {
+                e.preventDefault();
+                
+                if (!this.subjectName || !this.rosterData.length) {
+                    this.showMessage('Please upload roster and set subject name first', 'danger');
+                    return;
+                }
+
+                const week = document.getElementById('week').value;
+                const password = document.getElementById('password').value || null;
+                const maxAttendees = parseInt(document.getElementById('max_attendees').value);
+                const taEmail = document.getElementById('ta_email').value;
+                const useLocation = document.getElementById('useLocation').checked;
+                const locationDistance = document.getElementById('locationDistance').value || 50;
+
+                if (!week || !maxAttendees || !taEmail) {
+                    this.showMessage('Please fill all required fields', 'danger');
+                    return;
+                }
+
+                document.getElementById('sessionsContainer').innerHTML = '';
 
                 try {
                     const sessionId = 'session_' + Date.now();
-                    const [taIP, tokens] = await Promise.all([
-                        this.getIP(),
-                        this.generateTokens()
-                    ]);
 
-                    await this.saveSession(sessionId, { ...sessionData, taIP, tokens });
-                    this.handleSuccessfulSession(sessionId);
+                    // Get TA's IP for blocking
+                    const taIP = await fetch('https://api.ipify.org?format=json')
+                        .then(res => res.json())
+                        .then(data => data.ip)
+                        .catch(() => 'unknown');
+
+                    // Generate one token per student
+                    const tokenList = {};
+                    this.rosterData.forEach(student => {
+                        const token = crypto.randomUUID();
+                        tokenList[token] = {
+                            id: student.id,
+                            name: student.name,
+                            issuedToDevice: null,
+                            issuedToIP: null,
+                            used: false,
+                            flagged: false,
+                            issuedAt: Date.now()
+                        };
+                    });
+
+                    const newSession = {
+                        id: sessionId,
+                        subject: this.subjectName,
+                        week,
+                        password,
+                        maxAttendees,
+                        roster: this.rosterData,
+                        taEmail,
+                        createdAt: window.dbServerTimestamp(),
+                        active: true,
+                        attendeeCount: 0,
+                        useLocation,
+                        locationDistance,
+                        deviceId: this.deviceId,
+                        existingWeeks: [...this.existingWeeks],
+                        maxExistingWeek: this.maxExistingWeek,
+                        taIP
+                    };
+
+                    if (useLocation && this.classLocation) {
+                        newSession.classLocation = this.classLocation;
+                    }
+
+                    try {
+                        // Save session data
+                        const sessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
+                        await window.dbSet(sessionRef, newSession);
+
+                        // Save tokens separately
+                        const tokensRef = window.dbRef(window.database, `sessions/${sessionId}/tokens`);
+                        await window.dbSet(tokensRef, tokenList);
+
+                        this.saveSessionToLocal(newSession);
+                        
+                        const attendeesRef = window.dbRef(window.database, `sessions/${sessionId}/attendees`);
+                        
+                        const sessionData = {
+                            ...newSession,
+                            sessionRef,
+                            attendeesRef,
+                            syncStatus: 'connecting'
+                        };
+                        
+                        this.currentSessions.push(sessionData);
+                        this.displaySession(sessionData);
+                        
+                        window.dbOnValue(attendeesRef, (snapshot) => {
+                            const attendees = snapshot.val() || {};
+                            const attendeeList = Object.values(attendees);
+                            sessionData.attendees = attendeeList;
+                            sessionData.attendeeCount = attendeeList.length;
+                            
+                            this.updateSessionDisplay(sessionData);
+                            
+                            if (attendeeList.length >= maxAttendees && sessionData.active) {
+                                this.endSession(sessionData.id);
+                            }
+                            
+                            this.saveSessionToLocal(sessionData);
+                        });
+                        
+                        this.showMessage('Attendance session started successfully!', 'success');
+                        this.addToSessionHistory(sessionData);
+                        document.getElementById('sessionHistoryCard').classList.remove('hidden');
+                        
+                    } catch (error) {
+                        console.error('Error creating session:', error);
+                        this.showMessage('Failed to create session. Please try again.', 'danger');
+                    }
                 } catch (error) {
-                    console.error('Error creating session:', error);
+                    console.error('Error:', error);
                     this.showMessage('Failed to create session', 'danger');
                 }
             },
