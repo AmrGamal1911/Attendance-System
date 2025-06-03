@@ -3,243 +3,2133 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Attendance Form</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://www.gstatic.com/firebasejs/9.x.x/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.x.x/firebase-database-compat.js"></script>
+    <title>Attendance System | EELU</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <script>
+        function loadGoogleMaps() {
+            const script = document.createElement('script');
+            script.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes&libraries=places&callback=initMap';
+            script.async = true;
+            script.defer = true;
+            document.head.appendChild(script);
+        }
+        window.addEventListener('load', loadGoogleMaps);
+    </script>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
+        import { getDatabase, ref, set, onValue, push, serverTimestamp, off, get } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
+            authDomain: "eelu-attendance.firebaseapp.com",
+            databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
+            projectId: "eelu-attendance",
+            storageBucket: "eelu-attendance.appspot.com",
+            messagingSenderId: "5132239076",
+            appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
+            measurementId: "G-D2WNX8RGRL"
+        };
+
+        const firebaseApp = initializeApp(firebaseConfig);
+        window.database = getDatabase(firebaseApp);
+        window.dbRef = ref;
+        window.dbSet = set;
+        window.dbOnValue = onValue;
+        window.dbPush = push;
+        window.dbServerTimestamp = serverTimestamp;
+        window.dbOff = off;
+        window.dbGet = get;
+    </script>
+    
+    <style>
+        :root {
+            --primary: #667eea;
+            --primary-dark: #5a6fd8;
+            --secondary: #764ba2;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --info: #3b82f6;
+            --dark: #1f2937;
+            --light: #f8fafc;
+            --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --gradient-light: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            --border-radius: 12px;
+            --border-radius-lg: 16px;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--light);
+            line-height: 1.6;
+            color: var(--dark);
+            overflow-x: hidden;
+            background-image: radial-gradient(circle at 10% 20%, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 90%);
+        }
+        
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+            position: relative;
+        }
+        
+        header::after {
+            content: '';
+            position: absolute;
+            bottom: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60px;
+            height: 4px;
+            background: var(--gradient);
+            border-radius: 2px;
+            animation: slideIn 0.8s ease-out;
+        }
+        
+        header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+            animation: slideDown 0.8s ease-out;
+        }
+        
+        header p {
+            font-size: 1.1rem;
+            color: #6b7280;
+            font-weight: 400;
+            animation: slideDown 0.8s ease-out 0.2s both;
+        }
+        
+        .card {
+            background: white;
+            border-radius: var(--border-radius-lg);
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            animation: slideUp 0.6s ease-out;
+        }
+        
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--gradient);
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform 0.3s ease;
+        }
+        
+        .card:hover::before {
+            transform: scaleX(1);
+        }
+        
+        .card h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--dark);
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        
+        .card h2 i {
+            color: var(--primary);
+            font-size: 1.2rem;
+        }
+        
+        .btn {
+            background: var(--gradient);
+            color: white;
+            padding: 0.875rem 1.75rem;
+            border-radius: var(--border-radius);
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .btn:disabled {
+            background: #d1d5db;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #10b981, #059669);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, #6b7280, #4b5563);
+        }
+        
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        label i {
+            color: var(--primary);
+            width: 16px;
+        }
+        
+        input {
+            width: 100%;
+            padding: 0.875rem 1rem;
+            border: 2px solid #e5e7eb;
+            border-radius: var(--border-radius);
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+        
+        input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            outline: none;
+        }
+        
+        .file-upload {
+            border: 2px dashed #d1d5db;
+            padding: 3rem 2rem;
+            text-align: center;
+            border-radius: var(--border-radius-lg);
+            margin-bottom: 1.5rem;
+            transition: all 0.3s ease;
+            background: var(--gradient-light);
+        }
+        
+        .file-upload:hover {
+            border-color: var(--primary);
+            background: rgba(102, 126, 234, 0.05);
+        }
+        
+        #fileName {
+            color: #6b7280;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+        
+        #qrcode {
+            padding: 1.5rem;
+            background: white;
+            border-radius: var(--border-radius);
+            display: inline-block;
+            border: 1px solid #f3f4f6;
+            margin: 1rem 0;
+            box-shadow: var(--shadow);
+            animation: scaleIn 0.5s ease-out;
+        }
+        
+        .session-url {
+            margin: 1.5rem 0;
+        }
+        
+        .session-url .input-group {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .session-url input {
+            flex: 1;
+        }
+        
+        .copy-btn {
+            padding: 0.875rem;
+            min-width: auto;
+        }
+        
+        .alert {
+            padding: 1rem 1.5rem;
+            border-radius: var(--border-radius);
+            margin-bottom: 1.5rem;
+            border-left: 4px solid;
+            font-weight: 500;
+            animation: slideInRight 0.5s ease-out;
+        }
+        
+        .alert-success {
+            background: rgba(16, 185, 129, 0.1);
+            color: #047857;
+            border-left-color: var(--success);
+        }
+        
+        .alert-danger {
+            background: rgba(239, 68, 68, 0.1);
+            color: #b91c1c;
+            border-left-color: var(--danger);
+        }
+        
+        .session-status {
+            text-align: center;
+            padding: 1.5rem;
+            border-radius: var(--border-radius);
+            margin-bottom: 2rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+        }
+        
+        .session-active {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.05));
+            color: #047857;
+            border: 2px solid rgba(16, 185, 129, 0.2);
+        }
+        
+        .session-inactive {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05));
+            color: #b91c1c;
+            border: 2px solid rgba(239, 68, 68, 0.2);
+        }
+        
+        .sync-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+            padding: 0.5rem 1rem;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 50px;
+        }
+        
+        .sync-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #d1d5db;
+            transition: all 0.3s ease;
+        }
+        
+        .sync-indicator.connected {
+            background: var(--success);
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+        }
+        
+        .sync-indicator.connecting {
+            background: var(--warning);
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.1); }
+        }
+        
+        #rosterInfo {
+            margin-top: 1.5rem;
+            padding: 1.5rem;
+            background: var(--gradient-light);
+            border-radius: var(--border-radius);
+            border: 1px solid rgba(102, 126, 234, 0.2);
+        }
+        
+        .attendance-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 1rem;
+            border-radius: var(--border-radius);
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+        }
+        
+        .attendee-item {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid #f1f5f9;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            animation: slideInUp 0.5s ease-out;
+        }
+        
+        .attendee-item:last-child {
+            border-bottom: none;
+        }
+        
+        .attendee-info {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+        
+        .attendee-name {
+            font-weight: 600;
+            color: var(--dark);
+        }
+        
+        .attendee-details {
+            font-size: 0.875rem;
+            color: #6b7280;
+        }
+        
+        .attendee-time {
+            text-align: right;
+            font-size: 0.875rem;
+            color: #6b7280;
+        }
+        
+        .progress-container {
+            margin: 1.5rem 0;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #f1f5f9;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 0.5rem;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: var(--gradient);
+            transition: width 0.5s ease;
+            border-radius: 4px;
+        }
+        
+        .progress-text {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.875rem;
+            color: #6b7280;
+            font-weight: 500;
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        .flex {
+            display: flex;
+        }
+        
+        .flex-1 {
+            flex: 1;
+        }
+        
+        .gap-4 {
+            gap: 1rem;
+        }
+        
+        .mb-4 {
+            margin-bottom: 1rem;
+        }
+        
+        .qr-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .qr-modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            text-align: center;
+            width: 90%;
+            max-width: 500px;
+        }
+        
+        .qr-modal img {
+            width: 100%;
+            max-height: 70vh;
+        }
+        
+        .close-modal {
+            margin-top: 1rem;
+            cursor: pointer;
+        }
+        
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+            margin-left: 10px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .toggle-slider {
+            background-color: var(--primary);
+        }
+        
+        input:checked + .toggle-slider:before {
+            transform: translateX(26px);
+        }
+        
+        .session-history {
+            margin-top: 2rem;
+        }
+        
+        .session-item {
+            padding: 1rem;
+            border: 1px solid #e5e7eb;
+            border-radius: var(--border-radius);
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .session-item:hover {
+            background-color: #f8fafc;
+        }
+        
+        .session-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .voice-btn {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: var(--gradient);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: var(--shadow-lg);
+            z-index: 100;
+            transition: all 0.3s ease;
+            overflow: hidden;
+        }
+        
+        .voice-btn::before {
+            content: 'Voice Commands';
+            position: absolute;
+            right: 70px;
+            white-space: nowrap;
+            background: var(--gradient);
+            padding: 0.5rem 1rem;
+            border-radius: 30px;
+            opacity: 0;
+            transition: all 0.3s ease;
+            font-size: 0.9rem;
+        }
+        
+        .voice-btn:hover {
+            width: 200px;
+            border-radius: 30px;
+            justify-content: flex-end;
+            padding-right: 1rem;
+        }
+        
+        .voice-btn:hover::before {
+            opacity: 1;
+            right: 50px;
+        }
+        
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+        
+        .modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: var(--border-radius-lg);
+            width: 90%;
+            max-width: 800px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        
+        .modal.hidden {
+            display: none;
+        }
+        
+        .full-width {
+            width: 100%;
+        }
+        
+        .pac-container {
+            z-index: 2100 !important;
+        }
+        
+        .location-btn {
+            display: none;
+            margin-left: 10px;
+            padding: 0.5rem;
+        }
+        
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-50%) scaleX(0);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(-50%) scaleX(1);
+            }
+        }
+        
+        @keyframes slideInRight {
+            from {
+                opacity: 0;
+                transform: translateX(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
+        @keyframes slideInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes scaleIn {
+            from {
+                opacity: 0;
+                transform: scale(0.8);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+            
+            header h1 {
+                font-size: 2rem;
+            }
+            
+            .card {
+                padding: 1.5rem;
+            }
+            
+            .session-url .input-group {
+                flex-direction: column;
+            }
+            
+            .attendee-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.5rem;
+            }
+            
+            .attendee-time {
+                text-align: left;
+            }
+            
+            .voice-btn:hover {
+                width: 60px;
+                border-radius: 50%;
+                justify-content: center;
+                padding-right: 0;
+            }
+            
+            .voice-btn:hover::before {
+                display: none;
+            }
+        }
+
+        .session-card {
+            margin-bottom: 2rem;
+        }
+
+        .session-card:last-child {
+            margin-bottom: 0;
+        }
+        
+        .update-subject-btn {
+            margin-left: 10px;
+            padding: 0.5rem;
+            background: var(--info);
+            color: white;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            border: none;
+            cursor: pointer;
+        }
+        
+        .session-feedback {
+            text-align: center;
+            padding: 2rem;
+            border-radius: var(--border-radius);
+            background: #f8fafc;
+            margin-bottom: 1.5rem;
+        }
+
+        .text-red-500 {
+            color: #ef4444;
+        }
+    </style>
 </head>
 <body>
-    <div class="container mt-5">
-        <div class="row">
-            <div class="col-md-8 offset-md-2">
-                <h2 class="mb-4">Attendance Form</h2>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-qrcode"></i> EELU Attendance System</h1>
+            <p>Teaching Assistant Dashboard</p>
+        </header>
+
+        <div id="message" class="alert hidden"></div>
+
+        <!-- Upload Roster Section -->
+        <div class="card">
+            <h2><i class="fas fa-cloud-upload-alt"></i> Upload Student Roster</h2>
+            <form id="uploadForm">
+                <div class="file-upload">
+                    <input type="file" id="roster" name="roster" accept=".xlsx,.csv" hidden>
+                    <label for="roster" class="btn">
+                        <i class="fas fa-file-excel"></i> Select Excel/CSV File
+                    </label>
+                    <div id="fileName">Drag & drop or click to browse files</div>
+                </div>
+                <div id="rosterInfo" class="hidden">
+                    <div class="flex gap-4">
+                        <div class="form-group flex-1">
+                            <label for="subjectNameInput"><i class="fas fa-book"></i> Subject Name</label>
+                            <div style="display: flex; align-items: center;">
+                                <input type="text" id="subjectNameInput" placeholder="Enter subject name">
+                                <button type="button" class="update-subject-btn" onclick="app.updateSubjectName()">
+                                    <i class="fas fa-sync-alt"></i> Update
+                                </button>
+                            </div>
+                        </div>
+                        <div class="flex-1">
+                            <p><strong><i class="fas fa-users"></i> Students:</strong> <span id="studentCount">0</span></p>
+                            <p><strong><i class="fas fa-calendar-week"></i> Detected Weeks:</strong> <span id="weekCount">None</span></p>
+                        </div>
+                    </div>
+                </div>
+                <button type="submit" class="btn">
+                    <i class="fas fa-upload"></i> Process Roster
+                </button>
+            </form>
+        </div>
+
+        <!-- Create Session Section -->
+        <div class="card">
+            <h2><i class="fas fa-play-circle"></i> Create Attendance Session</h2>
+            <form id="sessionForm">
+                <div class="flex gap-4">
+                    <div class="form-group flex-1">
+                        <label for="week"><i class="fas fa-calendar-week"></i> Week Number</label>
+                        <input type="number" id="week" name="week" min="1" max="52" placeholder="e.g., 1" required>
+                    </div>
+                    
+                    <div class="form-group flex-1">
+                        <label for="max_attendees"><i class="fas fa-user-friends"></i> Max Attendees</label>
+                        <input type="number" id="max_attendees" name="max_attendees" min="1" max="500" value="30" required>
+                    </div>
+                </div>
                 
-                <div id="qrScanner" class="mb-4">
-                    <div id="scanner"></div>
-                    <p class="text-muted">Scan the QR code to submit attendance</p>
+                <div class="form-group">
+                    <label for="password"><i class="fas fa-shield-alt"></i> Session Password (Optional)</label>
+                    <input type="password" id="password" name="password" placeholder="Leave blank for no password">
                 </div>
-
-                <div id="attendanceForm" class="mb-4" style="display: none;">
-                    <form id="attendanceForm" onsubmit="formApp.submitAttendance(event)">
-                        <div class="mb-3">
-                            <label for="studentId" class="form-label">Student ID</label>
-                            <input type="text" class="form-control" id="studentId" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="studentName" class="form-label">Student Name</label>
-                            <input type="text" class="form-control" id="studentName" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="section" class="form-label">Section</label>
-                            <input type="text" class="form-control" id="section" required>
-                        </div>
-                        <button type="submit" class="btn btn-primary" id="submitBtn">Submit Attendance</button>
-                    </form>
+                
+                <div class="form-group">
+                    <label for="ta_email"><i class="fas fa-envelope"></i> Your Outlook Email</label>
+                    <input type="email" id="ta_email" name="ta_email" placeholder="Enter your Outlook email" required>
                 </div>
+                
+                <div class="form-group">
+                    <label style="display: flex; align-items: center;">
+                        <i class="fas fa-map-marker-alt"></i> Enable Location Check
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="useLocation">
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <button type="button" id="setLocationBtn" class="btn btn-secondary location-btn">
+                            <i class="fas fa-map-marked-alt"></i> Set Location
+                        </button>
+                    </label>
+                    <div id="locationSettings" class="hidden">
+                        <label for="locationDistance">Maximum Distance (meters):</label>
+                        <input type="number" id="locationDistance" value="50" min="10">
+                        <div id="locationPreview" style="margin-top: 0.5rem; font-size: 0.9rem; color: #6b7280;">
+                            No location selected
+                        </div>
+                    </div>
+                </div>
+                
+                <button type="submit" id="createSessionBtn" class="btn" disabled>
+                    <i class="fas fa-rocket"></i> Launch Session
+                </button>
+            </form>
+        </div>
 
-                <div id="message" class="alert alert-info" role="alert" style="display: none;"></div>
+        <!-- Sessions Container -->
+        <div id="sessionsContainer"></div>
+
+        <!-- Session History Section -->
+        <div class="card session-history hidden" id="sessionHistoryCard">
+            <h2><i class="fas fa-history"></i> Session History</h2>
+            <div id="sessionHistoryList"></div>
+            <button onclick="app.clearSessionHistory()" class="btn btn-danger">
+                <i class="fas fa-trash"></i> Clear History
+            </button>
+        </div>
+    </div>
+
+    <!-- QR Code Modal -->
+    <div id="qrModal" class="qr-modal">
+        <div class="qr-modal-content">
+            <div id="fullscreenQr"></div>
+            <button onclick="app.closeFullscreenQR()" class="btn close-modal">
+                <i class="fas fa-times"></i> Close
+            </button>
+        </div>
+    </div>
+
+    <!-- Location Picker Modal -->
+    <div id="locationModal" class="modal hidden">
+        <div class="modal-content">
+            <h2><i class="fas fa-map-marker-alt"></i> Select Class Location</h2>
+            <div id="map" style="height: 400px; width: 100%; margin: 1rem 0;"></div>
+            <div class="form-group">
+                <label><i class="fas fa-search"></i> Search Location:</label>
+                <input type="text" id="locationSearch" placeholder="Search for a location" class="full-width">
+            </div>
+            <div class="flex gap-4">
+                <button onclick="app.useCurrentLocation()" class="btn btn-secondary">
+                    <i class="fas fa-location-arrow"></i> Use Current Location
+                </button>
+                <button onclick="app.confirmLocation()" class="btn btn-success">
+                    <i class="fas fa-check"></i> Confirm Location
+                </button>
+                <button onclick="app.closeLocationModal()" class="btn btn-danger">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
             </div>
         </div>
     </div>
 
-    <script src="https://unpkg.com/html5-qrcode"></script>
+    <!-- Voice Command Button -->
+    <div class="voice-btn" id="voiceBtn" title="Voice Commands">
+        <i class="fas fa-microphone"></i>
+    </div>
+
     <script>
-        // Firebase configuration
-        const firebaseConfig = {
-            apiKey: "YOUR_API_KEY",
-            authDomain: "YOUR_AUTH_DOMAIN",
-            databaseURL: "YOUR_DATABASE_URL",
-            projectId: "YOUR_PROJECT_ID"
-        };
+        const app = {
+            rosterData: [],
+            currentSessions: [],
+            subjectName: '',
+            previousAttendanceData: null,
+            sessionsHistory: [],
+            recognition: null,
+            deviceId: localStorage.getItem('deviceId') || Date.now().toString(),
+            existingWeeks: [],
+            maxExistingWeek: 0,
+            classLocation: null,
+            map: null,
+            marker: null,
+            selectedLocation: null,
 
-        // Initialize Firebase
-        firebase.initializeApp(firebaseConfig);
-        const database = firebase.database();
+            init: function() {
+                localStorage.setItem('deviceId', this.deviceId);
+                this.setupDragAndDrop();
+                
+                const locationToggle = document.getElementById('useLocation');
+                locationToggle.addEventListener('change', function() {
+                    document.getElementById('locationSettings').classList.toggle('hidden', !this.checked);
+                    document.getElementById('setLocationBtn').style.display = this.checked ? 'block' : 'none';
+                });
+                
+                document.getElementById('setLocationBtn').addEventListener('click', () => {
+                    this.openLocationModal();
+                });
+                
+                this.initVoiceCommands();
+                this.loadSessionHistory();
+                this.initializeApp();
+            },
 
-        // Form application object
-        const formApp = {
-            currentSessionId: null,
-            currentToken: null,
-            deviceId: null,
-            
-            async init() {
-                try {
-                    // Initialize device ID
-                    this.deviceId = localStorage.getItem('deviceId') || crypto.randomUUID();
-                    localStorage.setItem('deviceId', this.deviceId);
-
-                    // Initialize QR scanner
-                    const scanner = new Html5Qrcode("scanner");
-                    scanner.start({
-                        fps: 10,
-                        qrbox: { width: 250, height: 250 }
-                    }, false, this.onScanSuccess, this.onError);
-                } catch (error) {
-                    console.error("Error initializing form:", error);
-                    this.showMessage("Failed to initialize form", "danger");
+            initMap: function() {
+                if (!window.google) {
+                    this.showMessage('Failed to load Google Maps. Please check your internet connection.', 'danger');
+                    return;
                 }
-            },
-
-            onScanSuccess(decodedText) {
-                const data = JSON.parse(decodedText);
-                this.currentSessionId = data.sessionId;
-                this.loadSession();
-            },
-
-            onError(err) {
-                console.error("QR code scan error:", err);
-                this.showMessage("QR code scan error", "danger");
-            },
-
-            async loadSession() {
-                try {
-                    const sessionRef = firebase.database().ref(`sessions/${this.currentSessionId}`);
-                    const sessionSnap = await sessionRef.once('value');
-                    const session = sessionSnap.val();
-
-                    if (!session || !session.active) {
-                        this.showMessage("Session not found or inactive", "danger");
-                        return;
-                    }
-
-                    // Get current IP and TA IP
-                    const currentIP = await fetch('https://api.ipify.org?format=json')
-                        .then(res => res.json())
-                        .then(data => data.ip)
-                        .catch(() => 'unknown');
-
-                    const taIpSnap = await firebase.database().ref(`sessions/${this.currentSessionId}/taIP`).once('value');
-                    const taIP = taIpSnap.val();
-
-                    if (currentIP === taIP) {
-                        this.showMessage("⚠️ TA device cannot submit attendance.", "danger");
-                        document.getElementById('submitBtn').disabled = true;
-                        return;
-                    }
-
-                    // Check token availability and assign
-                    const tokenSnap = await firebase.database().ref(`sessions/${this.currentSessionId}/tokens`).once('value');
-                    const tokens = tokenSnap.val() || {};
-
-                    let assignedToken = null;
-
-                    // Try reusing existing token
-                    for (const [key, data] of Object.entries(tokens)) {
-                        if (data.issuedToDevice === this.deviceId) {
-                            assignedToken = { key, data };
-                            break;
-                        }
-                    }
-
-                    // Assign new token if available
-                    if (!assignedToken) {
-                        const available = Object.entries(tokens).find(([_, d]) => !d.issuedToDevice);
-                        if (available) {
-                            const [token, data] = available;
-                            const newData = {
-                                ...data,
-                                issuedToDevice: this.deviceId,
-                                issuedToIP: currentIP,
-                                issuedAt: Date.now()
-                            };
-                            await firebase.database().ref(`sessions/${this.currentSessionId}/tokens/${token}`).set(newData);
-                            assignedToken = { key: token, data: newData };
-                        } else {
-                            this.showMessage("❌ No tokens available. Attendance is closed.", "danger");
-                            document.getElementById('submitBtn').disabled = true;
-                            return;
-                        }
-                    }
-
-                    this.currentToken = assignedToken.key;
-                    document.getElementById('qrScanner').style.display = 'none';
-                    document.getElementById('attendanceForm').style.display = 'block';
-                } catch (error) {
-                    console.error("Error loading session:", error);
-                    this.showMessage("Failed to load session", "danger");
-                }
-            },
-
-            async submitAttendance(event) {
-                event.preventDefault();
                 
                 try {
-                    const studentId = document.getElementById('studentId').value;
-                    const studentName = document.getElementById('studentName').value;
-                    const section = document.getElementById('section').value;
-                    
-                    const tokenPath = `sessions/${this.currentSessionId}/tokens/${this.currentToken}`;
-                    const tokenSnap = await firebase.database().ref(tokenPath).once('value');
-                    const tokenData = tokenSnap.val();
-
-                    // Check token misuse
-                    const isTokenMisused = tokenData.used;
-                    const isSecondUser = tokenData.id !== studentId;
-
-                    if (isTokenMisused && isSecondUser) {
-                        await firebase.database().ref(`${tokenPath}/flagged`).set(true);
-                        await firebase.database().ref(`${tokenPath}/secondStudentId`).set(studentId);
-
-                        await firebase.database().ref(`sessions/${this.currentSessionId}/attendees`).push({
-                            id: studentId,
-                            name: "Flagged Submission",
-                            timestamp: Date.now(),
-                            ip: tokenData.issuedToIP,
-                            token: this.currentToken,
-                            flagged: true,
-                            note: `Same token with ${tokenData.id}`
-                        });
-
-                        this.showMessage("⚠️ Token already used by another student. Your attendance was not counted.", "danger");
-                        document.getElementById('submitBtn').disabled = true;
-                        return;
-                    }
-
-                    // Mark token as used
-                    await firebase.database().ref(`${tokenPath}/used`).set(true);
-                    await firebase.database().ref(`${tokenPath}/id`).set(studentId);
-                    await firebase.database().ref(`${tokenPath}/name`).set(studentName);
-
-                    // Record attendance
-                    await firebase.database().ref(`sessions/${this.currentSessionId}/attendees`).push({
-                        id: studentId,
-                        name: studentName,
-                        section: section,
-                        timestamp: Date.now(),
-                        ip: tokenData.issuedToIP,
-                        token: this.currentToken
+                    this.map = new google.maps.Map(document.getElementById('map'), {
+                        center: {lat: 30.0444, lng: 31.2357},
+                        zoom: 15
                     });
-
-                    this.showMessage("Attendance submitted successfully!", "success");
-                    document.getElementById('attendanceForm').reset();
                     
-                    // Reset form after 2 seconds
-                    setTimeout(() => {
-                        document.getElementById('qrScanner').style.display = 'block';
-                        document.getElementById('attendanceForm').style.display = 'none';
-                        this.currentToken = null;
-                        document.getElementById('submitBtn').disabled = false;
-                    }, 2000);
+                    this.marker = new google.maps.Marker({
+                        map: this.map,
+                        draggable: true
+                    });
+                    
+                    const searchBox = new google.maps.places.SearchBox(
+                        document.getElementById('locationSearch')
+                    );
+                    
+                    this.map.addListener('bounds_changed', () => {
+                        searchBox.setBounds(this.map.getBounds());
+                    });
+                    
+                    searchBox.addListener('places_changed', () => {
+                        const places = searchBox.getPlaces();
+                        if (places.length === 0) return;
+                        
+                        const place = places[0];
+                        if (!place.geometry) return;
+                        
+                        this.map.setCenter(place.geometry.location);
+                        this.marker.setPosition(place.geometry.location);
+                        this.selectedLocation = {
+                            lat: place.geometry.location.lat(),
+                            lng: place.geometry.location.lng()
+                        };
+                    });
+                    
+                    this.map.addListener('click', (e) => {
+                        this.marker.setPosition(e.latLng);
+                        this.selectedLocation = {
+                            lat: e.latLng.lat(),
+                            lng: e.latLng.lng()
+                        };
+                    });
+                    
+                    this.marker.addListener('dragend', (e) => {
+                        this.selectedLocation = {
+                            lat: e.latLng.lat(),
+                            lng: e.latLng.lng()
+                        };
+                    });
                 } catch (error) {
-                    console.error("Error submitting attendance:", error);
-                    this.showMessage("Failed to submit attendance", "danger");
+                    console.error('Error initializing map:', error);
+                    this.showMessage('Error initializing Google Maps. Please try again.', 'danger');
                 }
             },
 
-            showMessage(message, type = "info") {
+            openLocationModal: function() {
+                document.getElementById('locationModal').classList.remove('hidden');
+                document.body.style.overflow = 'hidden';
+                
+                if (!this.map) {
+                    this.initMap();
+                }
+            },
+
+            closeLocationModal: function() {
+                document.getElementById('locationModal').classList.add('hidden');
+                document.body.style.overflow = 'auto';
+                this.selectedLocation = null;
+            },
+
+            useCurrentLocation: function() {
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition((pos) => {
+                        const location = {
+                            lat: pos.coords.latitude,
+                            lng: pos.coords.longitude
+                        };
+                        
+                        if (this.map) {
+                            this.map.setCenter(location);
+                            this.marker.setPosition(location);
+                            this.selectedLocation = location;
+                        }
+                        
+                        this.showMessage('Current location set!', 'success');
+                    }, (err) => {
+                        this.showMessage('Could not get current location: ' + err.message, 'danger');
+                    });
+                } else {
+                    this.showMessage('Geolocation is not supported by your browser', 'danger');
+                }
+            },
+
+            confirmLocation: function() {
+                if (!this.selectedLocation) {
+                    this.showMessage('Please select a location on the map', 'danger');
+                    return;
+                }
+                
+                this.classLocation = this.selectedLocation;
+                
+                if (this.map) {
+                    const geocoder = new google.maps.Geocoder();
+                    geocoder.geocode({ location: this.selectedLocation }, (results, status) => {
+                        let address = 'Custom location selected';
+                        if (status === 'OK' && results[0]) {
+                            address = results[0].formatted_address;
+                        }
+                        document.getElementById('locationPreview').textContent = address;
+                    });
+                }
+                
+                this.closeLocationModal();
+                this.showMessage('Class location set successfully!', 'success');
+            },
+
+            updateSubjectName: function() {
+                const newSubject = document.getElementById('subjectNameInput').value.trim();
+                if (newSubject) {
+                    this.subjectName = newSubject;
+                    this.showMessage('Subject name updated successfully!', 'success');
+                } else {
+                    this.showMessage('Please enter a valid subject name', 'danger');
+                }
+            },
+
+            setupDragAndDrop: function() {
+                const fileUpload = document.querySelector('.file-upload');
+                const fileInput = document.getElementById('roster');
+                const fileNameSpan = document.getElementById('fileName');
+
+                ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                    fileUpload.addEventListener(eventName, preventDefaults, false);
+                });
+
+                function preventDefaults(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+
+                ['dragenter', 'dragover'].forEach(eventName => {
+                    fileUpload.addEventListener(eventName, highlight, false);
+                });
+
+                ['dragleave', 'drop'].forEach(eventName => {
+                    fileUpload.addEventListener(eventName, unhighlight, false);
+                });
+
+                function highlight() {
+                    fileUpload.classList.add('bg-blue-50');
+                    fileUpload.style.borderColor = 'var(--primary)';
+                }
+
+                function unhighlight() {
+                    fileUpload.classList.remove('bg-blue-50');
+                    fileUpload.style.borderColor = '#d1d5db';
+                }
+
+                fileUpload.addEventListener('drop', handleDrop, false);
+
+                function handleDrop(e) {
+                    const dt = e.dataTransfer;
+                    const files = dt.files;
+                    
+                    if (files.length) {
+                        fileInput.files = files;
+                        fileNameSpan.textContent = files[0].name;
+                        
+                        const fileName = files[0].name;
+                        const subjectFromFile = fileName.replace(/\.[^/.]+$/, "").replace(/_/g, ' ');
+                        document.getElementById('subjectNameInput').value = subjectFromFile;
+                    }
+                }
+            },
+
+            initializeApp: function() {
+                const rosterInput = document.getElementById('roster');
+                const fileNameSpan = document.getElementById('fileName');
+                const uploadForm = document.getElementById('uploadForm');
+                const rosterInfoDiv = document.getElementById('rosterInfo');
+                const studentCountSpan = document.getElementById('studentCount');
+                const weekCountSpan = document.getElementById('weekCount');
+                const sessionForm = document.getElementById('sessionForm');
+                const createSessionBtn = document.getElementById('createSessionBtn');
+                
+                rosterInput.addEventListener('change', function(e) {
+                    if (this.files.length > 0) {
+                        const file = this.files[0];
+                        fileNameSpan.textContent = file.name;
+                        
+                        const subjectFromFile = file.name.replace(/\.[^/.]+$/, "").replace(/_/g, ' ');
+                        document.getElementById('subjectNameInput').value = subjectFromFile;
+                    } else {
+                        fileNameSpan.textContent = 'No file chosen';
+                    }
+                });
+                
+                uploadForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    if (rosterInput.files.length === 0) {
+                        app.showMessage('Please select a file first', 'danger');
+                        return;
+                    }
+                    
+                    const file = rosterInput.files[0];
+                    const reader = new FileReader();
+                    
+                    reader.onload = function(e) {
+                        try {
+                            const data = new Uint8Array(e.target.result);
+                            const workbook = XLSX.read(data, { type: 'array' });
+                            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                            const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+                            
+                            const weekColumns = {};
+                            let maxWeek = 0;
+                            
+                            if (jsonData.length > 0) {
+                                Object.keys(jsonData[0]).forEach(key => {
+                                    const lowerKey = key.toLowerCase();
+                                    if (lowerKey.includes('timestamp')) return;
+
+                                    const match = key.match(/week[\s_]?(\d+)/i);
+                                    if (match) {
+                                        const weekNum = parseInt(match[1]);
+                                        if (!isNaN(weekNum)) {
+                                            weekColumns[weekNum] = key;
+                                            if (weekNum > maxWeek) maxWeek = weekNum;
+                                        }
+                                    }
+                                });
+                            }
+                            
+                            app.rosterData = jsonData.map(row => {
+                                const id = String(row['Student ID'] || row['ID'] || row['id'] || row['StudentID'] || row['student_id'] || '').trim();
+                                const name = (row['Name'] || row['Student Name'] || row['name'] || row['StudentName'] || row['student_name'] || '').trim();
+                                const section = (row['Section'] || row['Class'] || row['section'] || row['class'] || '').trim();
+                                
+                                const weekData = {};
+                                Object.keys(weekColumns).forEach(weekNum => {
+                                    const rawValue = row[weekColumns[weekNum]];
+                                    const cleaned = String(rawValue || '').trim().toLowerCase();
+                                    const presentValues = ['1', 'yes', '✓', 'present', 'x'];
+                                    weekData[weekNum] = presentValues.includes(cleaned) ? 1 : 0;
+                                    if (rawValue && typeof rawValue === 'string' && (rawValue.includes('/') || rawValue.includes(':'))) {
+                                        row[`Timestamp Week ${weekNum}`] = rawValue;
+                                    }
+                                });
+                                
+                                return { id, name, section, weekData, ...row };
+                            }).filter(student => student.id && student.name);
+                            
+                            if (app.rosterData.length === 0) {
+                                app.showMessage('No valid student data found. Please check your file format.', 'danger');
+                                return;
+                            }
+                            
+                            app.subjectName = document.getElementById('subjectNameInput').value || 
+                                             file.name.replace(/\.(xlsx|csv)$/i, '').replace(/_/g, ' ');
+                            
+                            app.existingWeeks = Object.keys(weekColumns).map(Number).sort((a, b) => a - b);
+                            app.maxExistingWeek = maxWeek;
+                            
+                            studentCountSpan.textContent = app.rosterData.length;
+                            weekCountSpan.textContent = app.existingWeeks.length > 0 ? 
+                                app.existingWeeks.join(', ') : 'None (New Session)';
+                            rosterInfoDiv.classList.remove('hidden');
+                            createSessionBtn.disabled = false;
+                            
+                            app.showMessage('Roster uploaded successfully!', 'success');
+                        } catch (error) {
+                            console.error(error);
+                            app.showMessage('Error processing file. Please check the format.', 'danger');
+                        }
+                    };
+                    
+                    reader.onerror = function() {
+                        app.showMessage('Error reading file', 'danger');
+                    };
+                    
+                    reader.readAsArrayBuffer(file);
+                });
+                
+                sessionForm.addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    const week = document.getElementById('week').value;
+                    const password = document.getElementById('password').value || null;
+                    const maxAttendees = parseInt(document.getElementById('max_attendees').value);
+                    const taEmail = document.getElementById('ta_email').value;
+                    const useLocation = document.getElementById('useLocation').checked;
+                    const locationDistance = document.getElementById('locationDistance').value || 50;
+                    
+                    if (!app.subjectName || !week || !maxAttendees || !taEmail) {
+                        app.showMessage('Please upload roster and fill required fields', 'danger');
+                        return;
+                    }
+                    
+                    document.getElementById('sessionsContainer').innerHTML = '';
+                    
+                    const finalizeSession = async () => {
+                        try {
+                            const sessionId = 'session_' + Date.now();
+
+                            // Get TA's IP for blocking
+                            const taIP = await fetch('https://api.ipify.org?format=json')
+                                .then(res => res.json())
+                                .then(data => data.ip)
+                                .catch(() => 'unknown');
+
+                            // Generate one token per student
+                            const tokenList = {};
+                            app.rosterData.forEach(student => {
+                                const token = crypto.randomUUID();
+                                tokenList[token] = {
+                                    id: student.id,
+                                    name: student.name,
+                                    issuedToDevice: null,
+                                    issuedToIP: null,
+                                    used: false,
+                                    flagged: false,
+                                    issuedAt: Date.now()
+                                };
+                            });
+
+                            const newSession = {
+                                id: sessionId,
+                                subject: app.subjectName,
+                                week,
+                                password,
+                                maxAttendees,
+                                roster: app.rosterData,
+                                taEmail,
+                                createdAt: window.dbServerTimestamp(),
+                                active: true,
+                                attendeeCount: 0,
+                                useLocation,
+                                locationDistance,
+                                deviceId: app.deviceId,
+                                existingWeeks: [...app.existingWeeks],
+                                maxExistingWeek: app.maxExistingWeek,
+                                taIP: taIP // Store TA's IP
+                            };
+                            
+                            if (useLocation && app.classLocation) {
+                                newSession.classLocation = app.classLocation;
+                            }
+                            
+                            try {
+                                const sessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
+                                await window.dbSet(sessionRef, newSession);
+
+                                // Save tokens
+                                const tokensRef = window.dbRef(window.database, `sessions/${sessionId}/tokens`);
+                                await window.dbSet(tokensRef, tokenList);
+
+                                app.saveSessionToLocal(newSession);
+                                
+                                const attendeesRef = window.dbRef(window.database, `sessions/${sessionId}/attendees`);
+                                
+                                const sessionData = {
+                                    ...newSession,
+                                    sessionRef,
+                                    attendeesRef,
+                                    syncStatus: 'connecting'
+                                };
+                                
+                                app.currentSessions.push(sessionData);
+                                app.displaySession(sessionData);
+                                
+                                window.dbOnValue(attendeesRef, (snapshot) => {
+                                    const attendees = snapshot.val() || {};
+                                    const attendeeList = Object.values(attendees);
+                                    sessionData.attendees = attendeeList;
+                                    sessionData.attendeeCount = attendeeList.length;
+                                    
+                                    app.updateSessionDisplay(sessionData);
+                                    
+                                    if (attendeeList.length >= maxAttendees && sessionData.active) {
+                                        app.endSession(sessionData.id);
+                                    }
+                                    
+                                    app.saveSessionToLocal(sessionData);
+                                });
+                                
+                                app.showMessage('Attendance session started successfully!', 'success');
+                                app.addToSessionHistory(sessionData);
+                                document.getElementById('sessionHistoryCard').classList.remove('hidden');
+                                
+                            } catch (error) {
+                                console.error('Error creating session:', error);
+                                app.showMessage('Failed to create session. Please try again.', 'danger');
+                            }
+                        } catch (error) {
+                            console.error('Error:', error);
+                        }
+                    };
+
+                    if (useLocation && !app.classLocation && navigator.geolocation) {
+                        navigator.geolocation.getCurrentPosition(pos => {
+                            app.classLocation = {
+                                lat: pos.coords.latitude,
+                                lng: pos.coords.longitude,
+                                accuracy: pos.coords.accuracy
+                            };
+                            finalizeSession();
+                        }, err => {
+                            console.error('Location error:', err);
+                            app.showMessage('Location access denied. Session will start without location verification.', 'warning');
+                            finalizeSession();
+                        }, { enableHighAccuracy: true, timeout: 10000 });
+                    } else {
+                        finalizeSession();
+                    }
+                });
+            },
+
+            displaySession: function(sessionData) {
+                const sessionsContainer = document.getElementById('sessionsContainer');
+                const sessionId = sessionData.id;
+                
+                const sessionCard = document.createElement('div');
+                sessionCard.className = 'card session-card';
+                sessionCard.id = `sessionCard_${sessionId}`;
+                sessionCard.innerHTML = `
+                    <div class="session-status session-active" id="sessionStatus_${sessionId}">
+                        <i class="fas fa-broadcast-tower"></i> 
+                        <span>Session Active & Live</span>
+                        <div class="sync-status">
+                            <div class="sync-indicator" id="syncIndicator_${sessionId}"></div>
+                            <span id="syncStatus_${sessionId}">Connecting...</span>
+                        </div>
+                    </div>
+                    
+                    <h2><i class="fas fa-users-cog"></i> Live Session Dashboard</h2>
+                    
+                    <div class="flex gap-4 mb-4">
+                        <div class="flex-1">
+                            <label><strong><i class="fas fa-graduation-cap"></i> Subject:</strong></label>
+                            <p id="currentSubject_${sessionId}">${sessionData.subject}</p>
+                        </div>
+                        <div class="flex-1">
+                            <label><strong><i class="fas fa-calendar"></i> Week:</strong></label>
+                            <p id="currentWeek_${sessionId}">${sessionData.week}</p>
+                        </div>
+                    </div>
+                    
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill_${sessionId}" style="width: 0%"></div>
+                        </div>
+                        <div class="progress-text">
+                            <span><strong>Attendance Progress</strong></span>
+                            <span><span id="attendedCount_${sessionId}">0</span> / <span id="maxAttendeesDisplay_${sessionId}">${sessionData.maxAttendees}</span> Students</span>
+                        </div>
+                    </div>
+                    
+                    <div class="text-center mb-4">
+                        <div id="qrcode_${sessionId}"></div>
+                        <button onclick="app.openFullscreenQR('${sessionId}')" class="btn btn-secondary mt-2">
+                            <i class="fas fa-expand"></i> Fullscreen QR
+                        </button>
+                        <p style="color: #6b7280; margin-top: 1rem;">Students can scan this QR code to mark attendance</p>
+                    </div>
+                    
+                    <div class="form-group session-url">
+                        <label><strong><i class="fas fa-link"></i> Student Access Link:</strong></label>
+                        <div class="input-group">
+                            <input type="text" id="sessionUrl_${sessionId}" readonly>
+                            <button type="button" class="btn btn-secondary copy-btn" onclick="app.copyToClipboard('${sessionId}')">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label><strong><i class="fas fa-clock"></i> Live Attendance Feed:</strong></label>
+                        <div id="attendanceList_${sessionId}" class="attendance-list">
+                            <div style="padding: 2rem; text-align: center; color: #6b7280;">
+                                <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;"></i>
+                                <p>Waiting for students to join...</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex gap-4 mt-4">
+                        <button onclick="app.exportAttendanceReport('${sessionId}')" class="btn btn-success flex-1">
+                            <i class="fas fa-download"></i> Export Report
+                        </button>
+                        
+                        <button onclick="app.endSession('${sessionId}')" class="btn btn-danger flex-1">
+                            <i class="fas fa-stop-circle"></i> End Session
+                        </button>
+                    </div>
+                `;
+                
+                sessionsContainer.appendChild(sessionCard);
+                
+                const formUrl = `${window.location.origin}/form.html?session=${sessionId}`;
+                const qr = qrcode(0, 'L');
+                qr.addData(formUrl);
+                qr.make();
+                document.getElementById(`qrcode_${sessionId}`).innerHTML = qr.createImgTag(5);
+                
+                document.getElementById(`sessionUrl_${sessionId}`).value = formUrl;
+            },
+
+            updateSessionDisplay: function(sessionData) {
+                const sessionId = sessionData.id;
+                document.getElementById(`attendedCount_${sessionId}`).textContent = sessionData.attendeeCount || 0;
+                document.getElementById(`progressFill_${sessionId}`).style.width = 
+                    `${(sessionData.attendeeCount / sessionData.maxAttendees) * 100}%`;
+                
+                this.updateAttendanceList(sessionData);
+            },
+
+            updateAttendanceList: function(sessionData) {
+                const sessionId = sessionData.id;
+                const attendanceListDiv = document.getElementById(`attendanceList_${sessionId}`);
+                const attendees = sessionData.attendees || [];
+                
+                if (!attendees || attendees.length === 0) {
+                    attendanceListDiv.innerHTML = `
+                        <div style="padding: 2rem; text-align: center; color: #6b7280;">
+                            <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;"></i>
+                            <p>Waiting for students to join...</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                // Build map of IPs to IDs
+                const ipMap = {};
+                attendees.forEach(a => {
+                    if (!a.ip) return;
+                    if (!ipMap[a.ip]) ipMap[a.ip] = [];
+                    ipMap[a.ip].push(a.id);
+                });
+
+                const attendeesHtml = attendees
+                    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                    .map(attendee => {
+                        let ipNote = '';
+                        const others = ipMap[attendee.ip]?.filter(id => id !== attendee.id);
+                        if (others?.length > 0) {
+                            ipNote = `<span class="text-red-500"><i class="fas fa-exclamation-triangle"></i> Same IP with ${others.join(', ')}</span>`;
+                        }
+
+                        return `
+                            <div class="attendee-item">
+                                <div class="attendee-info">
+                                    <span class="attendee-name">${attendee.name}</span>
+                                    <span class="attendee-details">
+                                        ID: ${attendee.id} | Section: ${attendee.section} <br>
+                                        ${ipNote}
+                                    </span>
+                                </div>
+                                <div class="attendee-time">
+                                    ${new Date(attendee.timestamp).toLocaleTimeString()}
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                
+                attendanceListDiv.innerHTML = attendeesHtml;
+            },
+
+            exportAttendanceReport: async function(sessionId) {
+                const session = this.currentSessions.find(s => s.id === sessionId) || 
+                              JSON.parse(localStorage.getItem('sessions'))?.[sessionId];
+                
+                if (!session) {
+                    this.showMessage('Session not found or already ended', 'danger');
+                    return;
+                }
+                
+                const roster = session.roster || [];
+                const attendees = session.attendees || [];
+                const currentWeek = parseInt(session.week);
+                const subjectName = session.subject;
+                const allWeeks = [...(session.existingWeeks || []), currentWeek].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
+                
+                // Get token data
+                const tokensSnap = await window.dbGet(window.dbRef(window.database, `sessions/${sessionId}/tokens`));
+                const tokenMap = tokensSnap.val() || {};
+                
+                // Build token sharing notes
+                const tokenLinkNote = {};
+                Object.entries(tokenMap).forEach(([token, data]) => {
+                    if (data.flagged && data.secondStudentId) {
+                        tokenLinkNote[data.id] = `Same token with ${data.secondStudentId}`;
+                        tokenLinkNote[data.secondStudentId] = `Same token with ${data.id}`;
+                    }
+                });
+                
+                // Build IP map for duplicate detection
+                const ipMap = {};
+                attendees.forEach(a => {
+                    if (!a.ip) return;
+                    if (!ipMap[a.ip]) ipMap[a.ip] = [];
+                    ipMap[a.ip].push(a.id);
+                });
+
+                let reportData = [];
+                
+                if (session.existingWeeks?.length > 0) {
+                    reportData = roster.map(student => {
+                        const matched = attendees.find(a => a.id === student.id);
+                        const newRow = {
+                            'Student ID': student.id,
+                            'Name': student.name,
+                            'Section': student.section || ''
+                        };
+                        
+                        allWeeks.forEach(week => {
+                            if (week === currentWeek) {
+                                newRow[`Week ${week}`] = matched ? 1 : 0;
+                                newRow[`Timestamp Week ${week}`] = matched ? 
+                                    new Date(matched.timestamp).toLocaleString() : 'N/A';
+                            } else {
+                                newRow[`Week ${week}`] = student.weekData?.[week] || 0;
+                                newRow[`Timestamp Week ${week}`] = student[`Timestamp Week ${week}`] || 'N/A';
+                            }
+                        });
+                        
+                        newRow['Total Attendance'] = allWeeks.reduce((sum, week) => {
+                            return sum + (Number(newRow[`Week ${week}`]) || 0);
+                        }, 0);
+
+                        // Add IP note if applicable
+                        const ipNote = ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
+                            `Same IP with ${ipMap[matched.ip].filter(id => id !== student.id).join(', ')}` : '';
+                            
+                        // Add token note if applicable
+                        const tokenNote = tokenLinkNote[student.id] || '';
+                        
+                        // Combine notes
+                        newRow['Note'] = [ipNote, tokenNote].filter(Boolean).join(' | ');
+                        
+                        // Add flagged column if token was misused
+                        newRow['Flagged'] = tokenNote ? 'Yes' : '';
+                        
+                        return newRow;
+                    });
+                } else {
+                    reportData = roster.map(student => {
+                        const matched = attendees.find(a => a.id === student.id);
+                        const row = {
+                            'Student ID': student.id,
+                            'Name': student.name,
+                            'Section': student.section || '',
+                            [`Week ${currentWeek}`]: matched ? 1 : 0,
+                            'Total Attendance': matched ? 1 : 0,
+                            [`Timestamp Week ${currentWeek}`]: matched ? 
+                                new Date(matched.timestamp).toLocaleString() : 'N/A'
+                        };
+
+                        // Add IP note if applicable
+                        const ipNote = ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
+                            `Same IP with ${ipMap[matched.ip].filter(id => id !== student.id).join(', ')}` : '';
+                            
+                        // Add token note if applicable
+                        const tokenNote = tokenLinkNote[student.id] || '';
+                        
+                        // Combine notes
+                        row['Note'] = [ipNote, tokenNote].filter(Boolean).join(' | ');
+                        
+                        // Add flagged column if token was misused
+                        row['Flagged'] = tokenNote ? 'Yes' : '';
+                        
+                        return row;
+                    });
+                }
+                
+                const columnOrder = ['Student ID', 'Name', 'Section'];
+                
+                allWeeks.forEach(week => {
+                    columnOrder.push(`Week ${week}`);
+                });
+                
+                columnOrder.push('Total Attendance');
+                
+                allWeeks.forEach(week => {
+                    columnOrder.push(`Timestamp Week ${week}`);
+                });
+
+                // Add Note and Flagged columns
+                columnOrder.push('Note');
+                columnOrder.push('Flagged');
+                
+                const reorderedData = reportData.map(row => {
+                    const newRow = {};
+                    columnOrder.forEach(col => {
+                        if (row[col] !== undefined) {
+                            newRow[col] = row[col];
+                        }
+                    });
+                    return newRow;
+                });
+                
+                const ws = XLSX.utils.json_to_sheet(reorderedData);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Attendance");
+                
+                const today = new Date();
+                const dateStr = today.toISOString().split('T')[0];
+                let fileName;
+                
+                if (allWeeks.length > 1) {
+                    fileName = `${subjectName} Attendance from Week ${Math.min(...allWeeks)} to ${Math.max(...allWeeks)} ${dateStr}.xlsx`;
+                } else {
+                    fileName = `${subjectName} Attendance for Week ${currentWeek} ${dateStr}.xlsx`;
+                }
+                
+                fileName = fileName.replace(/[^a-zA-Z0-9\s\.\-_]/g, '').replace(/\s+/g, ' ');
+                XLSX.writeFile(wb, fileName);
+            },
+
+            endSession: async function(sessionId) {
+                try {
+                    const sessionRef = window.dbRef(window.database, `sessions/${sessionId}/active`);
+                    await window.dbSet(sessionRef, false);
+                    this.showMessage('Session ended successfully.', 'success');
+
+                    // Update local session object
+                    const sessionIndex = this.currentSessions.findIndex(s => s.id === sessionId);
+                    if (sessionIndex !== -1) {
+                        this.currentSessions[sessionIndex].active = false;
+                        this.updateSessionHistory(this.currentSessions[sessionIndex]);
+                    }
+
+                    // Update UI in main dashboard if session card exists
+                    const sessionCard = document.getElementById(`sessionCard_${sessionId}`);
+                    if (sessionCard) {
+                        sessionCard.innerHTML = `
+                            <div class="session-status session-inactive">
+                                <i class="fas fa-calendar-times"></i>
+                                <span>Session Ended</span>
+                            </div>
+
+                            <div class="session-feedback">
+                                <h2><i class="fas fa-check-circle"></i> Session Ended</h2>
+                                <p>This attendance session has ended.</p>
+                                <p>You can export the attendance report below.</p>
+
+                                <button onclick="app.exportAttendanceReport('${sessionId}')" class="btn btn-success mt-3">
+                                    <i class="fas fa-download"></i> Export Final Report
+                                </button>
+                            </div>
+                        `;
+                    }
+
+                    this.clearSessionInputs();
+                } catch (error) {
+                    console.error('Error ending session:', error);
+                    this.showMessage('Failed to end session.', 'danger');
+                }
+            },
+
+            clearSessionInputs: function() {
+                const rosterInput = document.getElementById('roster');
+                const fileNameSpan = document.getElementById('fileName');
+                const subjectInput = document.getElementById('subjectNameInput');
+                const weekInput = document.getElementById('week');
+                const maxAttendeesInput = document.getElementById('max_attendees');
+                const passwordInput = document.getElementById('password');
+                const emailInput = document.getElementById('ta_email');
+
+                rosterInput.value = '';
+                fileNameSpan.textContent = 'Drag & drop or click to browse files';
+                subjectInput.value = '';
+                weekInput.value = '';
+                maxAttendeesInput.value = 30;
+                passwordInput.value = '';
+                emailInput.value = '';
+                document.getElementById('rosterInfo').classList.add('hidden');
+                document.getElementById('createSessionBtn').disabled = true;
+                this.rosterData = [];
+            },
+
+            openFullscreenQR: function(sessionId) {
+                const modal = document.getElementById('qrModal');
+                const qrContainer = document.getElementById('fullscreenQr');
+                
+                const formUrl = `${window.location.origin}/form.html?session=${sessionId}`;
+                const qr = qrcode(0, 'L');
+                qr.addData(formUrl);
+                qr.make();
+                
+                qrContainer.innerHTML = qr.createImgTag(10);
+                modal.style.display = 'flex';
+                document.body.style.overflow = 'hidden';
+            },
+
+            closeFullscreenQR: function() {
+                document.getElementById('qrModal').style.display = 'none';
+                document.body.style.overflow = 'auto';
+            },
+
+            copyToClipboard: function(sessionId) {
+                const urlInput = document.getElementById(`sessionUrl_${sessionId}`);
+                urlInput.select();
+                urlInput.setSelectionRange(0, 99999);
+                document.execCommand('copy');
+                
+                const copyBtn = event.target.closest('.copy-btn');
+                const originalText = copyBtn.innerHTML;
+                copyBtn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalText;
+                }, 2000);
+            },
+
+            saveSessionToLocal: function(session) {
+                const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
+                sessions[session.id] = session;
+                localStorage.setItem('sessions', JSON.stringify(sessions));
+            },
+
+            addToSessionHistory: function(session) {
+                const history = JSON.parse(localStorage.getItem('sessionHistory') || '[]');
+                history.unshift({
+                    id: session.id,
+                    subject: session.subject,
+                    week: session.week,
+                    date: new Date().toISOString(),
+                    attendees: session.attendeeCount || 0,
+                    maxAttendees: session.maxAttendees,
+                    deviceId: this.deviceId,
+                    active: session.active
+                });
+                
+                if (history.length > 10) {
+                    history.length = 10;
+                }
+                
+                localStorage.setItem('sessionHistory', JSON.stringify(history));
+                this.renderSessionHistory();
+            },
+
+            updateSessionHistory: function(updatedSession) {
+                const history = JSON.parse(localStorage.getItem('sessionHistory') || '[]');
+                const sessionIndex = history.findIndex(s => s.id === updatedSession.id);
+                
+                if (sessionIndex !== -1) {
+                    history[sessionIndex].attendees = updatedSession.attendeeCount || 0;
+                    history[sessionIndex].active = updatedSession.active;
+                    localStorage.setItem('sessionHistory', JSON.stringify(history));
+                    this.renderSessionHistory();
+                }
+            },
+
+            loadSessionHistory: function() {
+                this.renderSessionHistory();
+            },
+
+            renderSessionHistory: function() {
+                const historyList = document.getElementById('sessionHistoryList');
+                const history = JSON.parse(localStorage.getItem('sessionHistory') || '[]')
+                    .filter(session => session.deviceId === this.deviceId);
+                
+                if (history.length === 0) {
+                    historyList.innerHTML = '<p>No previous sessions found</p>';
+                    document.getElementById('sessionHistoryCard').classList.add('hidden');
+                    return;
+                }
+                
+                historyList.innerHTML = history.map(session => `
+                    <div class="session-item">
+                        <div>
+                            <strong>${session.subject}</strong> - Week ${session.week}
+                            <div class="text-sm text-gray-500">
+                                ${new Date(session.date).toLocaleString()} | 
+                                ${session.attendees}/${session.maxAttendees} students
+                                ${session.active ? '<span class="text-green-500">(Active)</span>' : ''}
+                            </div>
+                        </div>
+                        <div class="session-actions">
+                            <button onclick="app.generateSessionQR('${session.id}')" class="btn btn-secondary" title="QR Code">
+                                <i class="fas fa-qrcode"></i>
+                            </button>
+                            <button onclick="app.copySessionLink('${session.id}')" class="btn btn-secondary" title="Copy Link">
+                                <i class="fas fa-link"></i>
+                            </button>
+                            <button onclick="app.downloadSessionReport('${session.id}')" class="btn btn-secondary" title="Download Report">
+                                <i class="fas fa-download"></i>
+                            </button>
+                            ${session.active ? `
+                                <button onclick="app.endSession('${session.id}')" class="btn btn-danger" title="End Session">
+                                    <i class="fas fa-stop-circle"></i>
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                `).join('');
+                
+                document.getElementById('sessionHistoryCard').classList.remove('hidden');
+            },
+
+            clearSessionHistory: function() {
+                localStorage.removeItem('sessionHistory');
+                this.renderSessionHistory();
+                this.showMessage('Session history cleared.', 'success');
+            },
+
+            generateSessionQR: function(sessionId) {
+                const formUrl = `${window.location.origin}/form.html?session=${sessionId}`;
+                const qr = qrcode(0, 'L');
+                qr.addData(formUrl);
+                qr.make();
+                
+                const qrContainer = document.getElementById('fullscreenQr');
+                qrContainer.innerHTML = qr.createImgTag(10);
+                document.getElementById('qrModal').style.display = 'flex';
+                document.body.style.overflow = 'hidden';
+            },
+
+            copySessionLink: function(sessionId) {
+                const formUrl = `${window.location.origin}/form.html?session=${sessionId}`;
+                navigator.clipboard.writeText(formUrl)
+                    .then(() => {
+                        this.showMessage('Session link copied to clipboard!', 'success');
+                    })
+                    .catch(err => {
+                        this.showMessage('Failed to copy link', 'danger');
+                        console.error('Could not copy text: ', err);
+                    });
+            },
+
+            downloadSessionReport: async function(sessionId) {
+                const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
+                const session = sessions[sessionId];
+                
+                if (!session) {
+                    this.showMessage('Session data not found', 'danger');
+                    return;
+                }
+                
+                const roster = session.roster || [];
+                const attendees = session.attendees || [];
+                const week = session.week;
+                const subjectName = session.subject;
+                const allWeeks = [...(session.existingWeeks || []), week].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
+                
+                // Get token data
+                const tokensSnap = await window.dbGet(window.dbRef(window.database, `sessions/${sessionId}/tokens`));
+                const tokenMap = tokensSnap.val() || {};
+                
+                // Build token sharing notes
+                const tokenLinkNote = {};
+                Object.entries(tokenMap).forEach(([token, data]) => {
+                    if (data.flagged && data.secondStudentId) {
+                        tokenLinkNote[data.id] = `Same token with ${data.secondStudentId}`;
+                        tokenLinkNote[data.secondStudentId] = `Same token with ${data.id}`;
+                    }
+                });
+                
+                // Build IP map for duplicate detection
+                const ipMap = {};
+                attendees.forEach(a => {
+                    if (!a.ip) return;
+                    if (!ipMap[a.ip]) ipMap[a.ip] = [];
+                    ipMap[a.ip].push(a.id);
+                });
+
+                const data = roster.map(student => {
+                    const matched = attendees.find(a => a.id === student.id);
+                    const row = {
+                        'Student ID': student.id,
+                        'Name': student.name,
+                        'Section': student.section || ''
+                    };
+                    
+                    allWeeks.forEach(w => {
+                        if (w === week) {
+                            row[`Week ${w}`] = matched ? 1 : 0;
+                            row[`Timestamp Week ${w}`] = matched ? 
+                                new Date(attendees.find(a => a.id === student.id).timestamp).toLocaleString() : 'N/A';
+                        } else {
+                            row[`Week ${w}`] = student.weekData?.[w] || 0;
+                            row[`Timestamp Week ${w}`] = student[`Timestamp Week ${w}`] || 'N/A';
+                        }
+                    });
+                    
+                    row['Total Attendance'] = allWeeks.reduce((sum, w) => sum + (Number(row[`Week ${w}`]) || 0), 0);
+
+                    // Add IP note if applicable
+                    const ipNote = ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
+                        `Same IP with ${ipMap[matched.ip].filter(id => id !== student.id).join(', ')}` : '';
+                        
+                    // Add token note if applicable
+                    const tokenNote = tokenLinkNote[student.id] || '';
+                    
+                    // Combine notes
+                    row['Note'] = [ipNote, tokenNote].filter(Boolean).join(' | ');
+                    
+                    // Add flagged column if token was misused
+                    row['Flagged'] = tokenNote ? 'Yes' : '';
+                    
+                    return row;
+                });
+                
+                const columnOrder = ['Student ID', 'Name', 'Section'];
+                
+                allWeeks.forEach(week => {
+                    columnOrder.push(`Week ${week}`);
+                });
+                
+                columnOrder.push('Total Attendance');
+                
+                allWeeks.forEach(week => {
+                    columnOrder.push(`Timestamp Week ${week}`);
+                });
+
+                // Add Note and Flagged columns
+                columnOrder.push('Note');
+                columnOrder.push('Flagged');
+                
+                const reorderedData = data.map(row => {
+                    const newRow = {};
+                    columnOrder.forEach(col => {
+                        if (row[col] !== undefined) {
+                            newRow[col] = row[col];
+                        }
+                    });
+                    return newRow;
+                });
+                
+                const ws = XLSX.utils.json_to_sheet(reorderedData);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Attendance");
+                
+                const today = new Date();
+                const dateStr = today.toISOString().split('T')[0];
+                let fileName;
+                
+                if (allWeeks.length > 1) {
+                    fileName = `${subjectName} Attendance from Week ${Math.min(...allWeeks)} to ${Math.max(...allWeeks)} ${dateStr}.xlsx`;
+                } else {
+                    fileName = `${subjectName} Attendance for Week ${week} ${dateStr}.xlsx`;
+                }
+                
+                XLSX.writeFile(wb, fileName);
+            },
+
+            initVoiceCommands: function() {
+                try {
+                    if ('webkitSpeechRecognition' in window) {
+                        this.recognition = new webkitSpeechRecognition();
+                    } else if ('SpeechRecognition' in window) {
+                        this.recognition = new SpeechRecognition();
+                    } else {
+                        throw new Error('Speech recognition not supported');
+                    }
+                    
+                    this.recognition.continuous = false;
+                    this.recognition.interimResults = false;
+                    this.recognition.lang = 'en-US';
+                    
+                    this.recognition.onresult = (event) => {
+                        const transcript = event.results[0][0].transcript.toLowerCase();
+                        this.handleVoiceCommand(transcript);
+                    };
+                    
+                    this.recognition.onerror = (event) => {
+                        console.error('Voice recognition error', event.error);
+                        if (event.error === 'not-allowed') {
+                            this.showMessage('Microphone access denied. Please enable microphone permissions.', 'danger');
+                        }
+                    };
+                    
+                    document.getElementById('voiceBtn').addEventListener('click', () => {
+                        try {
+                            navigator.mediaDevices.getUserMedia({ audio: true })
+                                .then(() => {
+                                    this.recognition.start();
+                                    document.getElementById('voiceBtn').innerHTML = '<i class="fas fa-microphone-slash"></i>';
+                                    this.showMessage('Listening for commands...', 'info');
+                                })
+                                .catch(err => {
+                                    console.error('Microphone access error:', err);
+                                    this.showMessage('Microphone access required for voice commands', 'danger');
+                                });
+                        } catch (error) {
+                            console.error('Voice recognition failed:', error);
+                            this.showMessage('Voice commands not supported in your browser', 'danger');
+                        }
+                    });
+                    
+                    this.recognition.onend = () => {
+                        document.getElementById('voiceBtn').innerHTML = '<i class="fas fa-microphone"></i>';
+                    };
+                } catch (error) {
+                    console.error('Voice recognition not supported:', error);
+                    document.getElementById('voiceBtn').style.display = 'none';
+                }
+            },
+
+            handleVoiceCommand: function(command) {
+                this.showMessage(`Heard: "${command}"`, 'info');
+                
+                if (command.includes('start session') || command.includes('begin session')) {
+                    if (!document.getElementById('createSessionBtn').disabled) {
+                        document.getElementById('sessionForm').dispatchEvent(new Event('submit'));
+                    } else {
+                        this.showMessage('Please upload a roster first', 'warning');
+                    }
+                } else if (command.includes('end session') || command.includes('stop session')) {
+                    const activeSession = this.currentSessions.find(s => s.active);
+                    if (activeSession) {
+                        this.endSession(activeSession.id);
+                    } else {
+                        this.showMessage('No active session to end', 'warning');
+                    }
+                } else if (command.includes('fullscreen') || command.includes('show qr')) {
+                    const activeSession = this.currentSessions.find(s => s.active);
+                    if (activeSession) {
+                        this.openFullscreenQR(activeSession.id);
+                    } else {
+                        this.showMessage('No active session to show QR code', 'warning');
+                    }
+                } else if (command.includes('copy link') || command.includes('session link')) {
+                    const activeSession = this.currentSessions.find(s => s.active);
+                    if (activeSession) {
+                        this.copyToClipboard(activeSession.id);
+                    } else {
+                        this.showMessage('No active session to copy link', 'warning');
+                    }
+                } else {
+                    this.showMessage('Command not recognized. Try "start session" or "end session"', 'warning');
+                }
+            },
+
+            showMessage: function(text, type) {
                 const messageDiv = document.getElementById('message');
+                messageDiv.textContent = text;
                 messageDiv.className = `alert alert-${type}`;
-                messageDiv.textContent = message;
-                messageDiv.style.display = 'block';
+                messageDiv.classList.remove('hidden');
                 
                 setTimeout(() => {
-                    messageDiv.style.display = 'none';
+                    messageDiv.classList.add('hidden');
                 }, 5000);
             }
         };
 
-        // Initialize the form app
-        formApp.init();
+        document.addEventListener('DOMContentLoaded', function() {
+            app.init();
+        });
+
+        function initMap() {
+            if (typeof app !== 'undefined') {
+                app.initMap();
+            }
+        }
     </script>
 </body>
 </html>
