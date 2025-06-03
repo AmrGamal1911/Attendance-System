@@ -1534,7 +1534,8 @@
                 Object.entries(tokenMap).forEach(([token, data]) => {
                     if (data.flagged && data.secondStudentId) {
                         // Only mark the second student as using a shared token
-                        tokenLinkNote[data.secondStudentId] = `Token already used by ID: ${data.id}`;
+                        const deviceMatch = data.deviceHash === data.secondDeviceHash;
+                        tokenLinkNote[data.secondStudentId] = `Token already used by ID: ${data.id}${deviceMatch ? ' (Same Device)' : ' (Different Device)'}`;
                     }
                 });
                 
