@@ -585,29 +585,27 @@
                 let isSecondUser = false;
 
                 if (!tokenData) {
-                    // First time using this token - initialize it and mark as used immediately
+                    // First time using this token - initialize it
                     await window.dbSet(window.dbRef(window.database, tokenPath), {
                         id: studentId,
                         ip: currentIP,
                         timestamp: Date.now(),
-                        used: true,  // Mark as used immediately
+                        used: true,
                         flagged: false
                     });
                 } else {
-                    // Check if token was already used for a different student
+                    // Check if token was already used by a different student
                     if (tokenData.id !== studentId) {
                         isTokenMisused = true;
                         isSecondUser = true;
+                        // Flag token and prevent attendance for second student only
+                        await window.dbSet(window.dbRef(window.database, tokenPath + "/flagged"), true);
+                        await window.dbSet(window.dbRef(window.database, tokenPath + "/secondStudentId"), studentId);
+                        await window.dbSet(window.dbRef(window.database, tokenPath + "/secondStudentTimestamp"), Date.now());
+
+                        this.showMessage("⚠️ Token already used by another student. Attendance not counted.", "danger");
+                        return; // DO NOT submit attendance for second student
                     }
-                }
-
-                if (isTokenMisused && isSecondUser) {
-                    // Flag token and prevent attendance
-                    await window.dbSet(window.dbRef(window.database, tokenPath + "/flagged"), true);
-                    await window.dbSet(window.dbRef(window.database, tokenPath + "/secondStudentId"), studentId);
-
-                    this.showMessage("⚠️ Token already used by another student. Attendance not counted.", "danger");
-                    return; // DO NOT submit attendance for misused tokens
                 }
                 
                 const attendeeSnap = await window.dbGet(this.attendeesRef);
@@ -644,16 +642,11 @@
                         .catch(() => 'unknown');
 
                     // Check for IP sharing (for detection only)
-                    // Exclude TA's IP address from IP sharing detection
                     const ipSharedWith = attendeeList.filter(a => 
                         a.ip === ipAddress && 
                         a.id !== studentId && 
-                        ipAddress !== this.sessionData.taIpAddress // Don't count TA's IP
+                        ipAddress !== this.sessionData.taIpAddress
                     );
-                    
-                    if (ipSharedWith.length > 0 && ipAddress !== this.sessionData.taIpAddress) {
-                        console.log(`IP address ${ipAddress} shared with students:`, ipSharedWith.map(a => a.id));
-                    }
 
                     const newAttendee = {
                         id: student.id,
@@ -662,12 +655,10 @@
                         timestamp: Date.now(),
                         ip: ipAddress,
                         token: this.currentToken,
-                        isFromTaIp: ipAddress === this.sessionData.taIpAddress // Flag if attendance is from TA's IP
+                        isFromTaIp: ipAddress === this.sessionData.taIpAddress
                     };
                     
                     await window.dbPush(this.attendeesRef, newAttendee);
-                    
-                    // No need to mark token as used again since we do it at initialization
                     
                     this.showMessage(`Attendance recorded successfully for ${student.name}!`, 'success');
                     document.getElementById('student_id').value = '';
