@@ -785,6 +785,10 @@
             background: #f8fafc;
             margin-bottom: 1.5rem;
         }
+
+        .text-red-500 {
+            color: #ef4444;
+        }
     </style>
 </head>
 <body>
@@ -1275,22 +1279,6 @@
                     const finalizeSession = async () => {
                         try {
                             const sessionId = 'session_' + Date.now();
-                            
-                            // Generate tokens for each student
-                            const tokenList = {};
-                            app.rosterData.forEach(student => {
-                                const token = crypto.randomUUID();
-                                tokenList[token] = {
-                                    id: student.id,
-                                    name: student.name,
-                                    issuedToDevice: null,
-                                    issuedToIP: null,
-                                    used: false,
-                                    flagged: false,
-                                    issuedAt: Date.now()
-                                };
-                            });
-                            
                             const newSession = {
                                 id: sessionId,
                                 subject: app.subjectName,
@@ -1306,8 +1294,7 @@
                                 locationDistance,
                                 deviceId: app.deviceId,
                                 existingWeeks: [...app.existingWeeks],
-                                maxExistingWeek: app.maxExistingWeek,
-                                tokens: tokenList
+                                maxExistingWeek: app.maxExistingWeek
                             };
                             
                             if (useLocation && app.classLocation) {
@@ -1320,11 +1307,13 @@
                                 app.saveSessionToLocal(newSession);
                                 
                                 const attendeesRef = window.dbRef(window.database, `sessions/${sessionId}/attendees`);
+                                const tokensRef = window.dbRef(window.database, `sessions/${sessionId}/tokens`);
                                 
                                 const sessionData = {
                                     ...newSession,
                                     sessionRef,
                                     attendeesRef,
+                                    tokensRef,
                                     syncStatus: 'connecting'
                                 };
                                 
@@ -1528,7 +1517,7 @@
                 attendanceListDiv.innerHTML = attendeesHtml;
             },
 
-            async exportAttendanceReport(sessionId) {
+            exportAttendanceReport: async function(sessionId) {
                 const session = this.currentSessions.find(s => s.id === sessionId) || 
                               JSON.parse(localStorage.getItem('sessions'))?.[sessionId];
                 
@@ -1543,9 +1532,18 @@
                 const subjectName = session.subject;
                 const allWeeks = [...(session.existingWeeks || []), currentWeek].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
                 
-                // Load tokens
+                // Get token data
                 const tokensSnap = await window.dbGet(window.dbRef(window.database, `sessions/${sessionId}/tokens`));
                 const tokenMap = tokensSnap.val() || {};
+                
+                // Build token sharing notes
+                const tokenLinkNote = {};
+                Object.entries(tokenMap).forEach(([token, data]) => {
+                    if (data.flagged && data.secondStudentId) {
+                        tokenLinkNote[data.id] = `Same token with ${data.secondStudentId}`;
+                        tokenLinkNote[data.secondStudentId] = `Same token with ${data.id}`;
+                    }
+                });
                 
                 // Build IP map for duplicate detection
                 const ipMap = {};
@@ -1554,23 +1552,12 @@
                     if (!ipMap[a.ip]) ipMap[a.ip] = [];
                     ipMap[a.ip].push(a.id);
                 });
-                
-                const ipNotes = {};
-                Object.entries(ipMap).forEach(([ip, ids]) => {
-                    if (ids.length > 1) {
-                        ids.forEach(id => {
-                            ipNotes[id] = `Same IP with ${ids.filter(x => x !== id).join(', ')}`;
-                        });
-                    }
-                });
 
                 let reportData = [];
                 
                 if (session.existingWeeks?.length > 0) {
                     reportData = roster.map(student => {
                         const matched = attendees.find(a => a.id === student.id);
-                        const tokenEntry = Object.values(tokenMap).find(t => t.id === student.id);
-                        
                         const newRow = {
                             'Student ID': student.id,
                             'Name': student.name,
@@ -1593,24 +1580,23 @@
                         }, 0);
 
                         // Add IP note if applicable
-                        if (matched) {
-                            newRow['IP Note'] = ipNotes[matched.id] || '';
-                        }
+                        const ipNote = ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
+                            `Same IP with ${ipMap[matched.ip].filter(id => id !== student.id).join(', ')}` : '';
+                            
+                        // Add token note if applicable
+                        const tokenNote = tokenLinkNote[student.id] || '';
                         
-                        // Add token status
-                        if (tokenEntry) {
-                            newRow['Token Status'] = tokenEntry.flagged ? 'FLAGGED' : 'Valid';
-                            newRow['Token Issued To'] = tokenEntry.issuedToDevice ? 
-                                `Device: ${tokenEntry.issuedToDevice.slice(0, 8)}...` : 'Not issued';
-                        }
+                        // Combine notes
+                        newRow['Note'] = [ipNote, tokenNote].filter(Boolean).join(' | ');
+                        
+                        // Add flagged column if token was misused
+                        newRow['Flagged'] = tokenNote ? 'Yes' : '';
                         
                         return newRow;
                     });
                 } else {
                     reportData = roster.map(student => {
                         const matched = attendees.find(a => a.id === student.id);
-                        const tokenEntry = Object.values(tokenMap).find(t => t.id === student.id);
-                        
                         const row = {
                             'Student ID': student.id,
                             'Name': student.name,
@@ -1622,16 +1608,17 @@
                         };
 
                         // Add IP note if applicable
-                        if (matched) {
-                            row['IP Note'] = ipNotes[matched.id] || '';
-                        }
+                        const ipNote = ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
+                            `Same IP with ${ipMap[matched.ip].filter(id => id !== student.id).join(', ')}` : '';
+                            
+                        // Add token note if applicable
+                        const tokenNote = tokenLinkNote[student.id] || '';
                         
-                        // Add token status
-                        if (tokenEntry) {
-                            row['Token Status'] = tokenEntry.flagged ? 'FLAGGED' : 'Valid';
-                            row['Token Issued To'] = tokenEntry.issuedToDevice ? 
-                                `Device: ${tokenEntry.issuedToDevice.slice(0, 8)}...` : 'Not issued';
-                        }
+                        // Combine notes
+                        row['Note'] = [ipNote, tokenNote].filter(Boolean).join(' | ');
+                        
+                        // Add flagged column if token was misused
+                        row['Flagged'] = tokenNote ? 'Yes' : '';
                         
                         return row;
                     });
@@ -1649,10 +1636,9 @@
                     columnOrder.push(`Timestamp Week ${week}`);
                 });
 
-                // Add additional columns
-                columnOrder.push('IP Note');
-                columnOrder.push('Token Status');
-                columnOrder.push('Token Issued To');
+                // Add Note and Flagged columns
+                columnOrder.push('Note');
+                columnOrder.push('Flagged');
                 
                 const reorderedData = reportData.map(row => {
                     const newRow = {};
@@ -1893,7 +1879,7 @@
                     });
             },
 
-            async downloadSessionReport(sessionId) {
+            downloadSessionReport: async function(sessionId) {
                 const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
                 const session = sessions[sessionId];
                 
@@ -1908,9 +1894,18 @@
                 const subjectName = session.subject;
                 const allWeeks = [...(session.existingWeeks || []), week].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
                 
-                // Load tokens
+                // Get token data
                 const tokensSnap = await window.dbGet(window.dbRef(window.database, `sessions/${sessionId}/tokens`));
                 const tokenMap = tokensSnap.val() || {};
+                
+                // Build token sharing notes
+                const tokenLinkNote = {};
+                Object.entries(tokenMap).forEach(([token, data]) => {
+                    if (data.flagged && data.secondStudentId) {
+                        tokenLinkNote[data.id] = `Same token with ${data.secondStudentId}`;
+                        tokenLinkNote[data.secondStudentId] = `Same token with ${data.id}`;
+                    }
+                });
                 
                 // Build IP map for duplicate detection
                 const ipMap = {};
@@ -1919,20 +1914,9 @@
                     if (!ipMap[a.ip]) ipMap[a.ip] = [];
                     ipMap[a.ip].push(a.id);
                 });
-                
-                const ipNotes = {};
-                Object.entries(ipMap).forEach(([ip, ids]) => {
-                    if (ids.length > 1) {
-                        ids.forEach(id => {
-                            ipNotes[id] = `Same IP with ${ids.filter(x => x !== id).join(', ')}`;
-                        });
-                    }
-                });
 
                 const data = roster.map(student => {
                     const matched = attendees.find(a => a.id === student.id);
-                    const tokenEntry = Object.values(tokenMap).find(t => t.id === student.id);
-                    
                     const row = {
                         'Student ID': student.id,
                         'Name': student.name,
@@ -1943,7 +1927,7 @@
                         if (w === week) {
                             row[`Week ${w}`] = matched ? 1 : 0;
                             row[`Timestamp Week ${w}`] = matched ? 
-                                new Date(matched.timestamp).toLocaleString() : 'N/A';
+                                new Date(attendees.find(a => a.id === student.id).timestamp).toLocaleString() : 'N/A';
                         } else {
                             row[`Week ${w}`] = student.weekData?.[w] || 0;
                             row[`Timestamp Week ${w}`] = student[`Timestamp Week ${w}`] || 'N/A';
@@ -1953,16 +1937,17 @@
                     row['Total Attendance'] = allWeeks.reduce((sum, w) => sum + (Number(row[`Week ${w}`]) || 0), 0);
 
                     // Add IP note if applicable
-                    if (matched) {
-                        row['IP Note'] = ipNotes[matched.id] || '';
-                    }
+                    const ipNote = ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
+                        `Same IP with ${ipMap[matched.ip].filter(id => id !== student.id).join(', ')}` : '';
+                        
+                    // Add token note if applicable
+                    const tokenNote = tokenLinkNote[student.id] || '';
                     
-                    // Add token status
-                    if (tokenEntry) {
-                        row['Token Status'] = tokenEntry.flagged ? 'FLAGGED' : 'Valid';
-                        row['Token Issued To'] = tokenEntry.issuedToDevice ? 
-                            `Device: ${tokenEntry.issuedToDevice.slice(0, 8)}...` : 'Not issued';
-                    }
+                    // Combine notes
+                    row['Note'] = [ipNote, tokenNote].filter(Boolean).join(' | ');
+                    
+                    // Add flagged column if token was misused
+                    row['Flagged'] = tokenNote ? 'Yes' : '';
                     
                     return row;
                 });
@@ -1979,10 +1964,9 @@
                     columnOrder.push(`Timestamp Week ${week}`);
                 });
 
-                // Add additional columns
-                columnOrder.push('IP Note');
-                columnOrder.push('Token Status');
-                columnOrder.push('Token Issued To');
+                // Add Note and Flagged columns
+                columnOrder.push('Note');
+                columnOrder.push('Flagged');
                 
                 const reorderedData = data.map(row => {
                     const newRow = {};
