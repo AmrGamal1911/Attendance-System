@@ -382,6 +382,9 @@
             lastLocation: null,
             locationAttempts: 0,
             maxLocationAttempts: 2,
+            deviceId: null,
+            currentToken: null,
+            tokenMeta: null,
 
             init: function() {
                 this.currentSessionId = new URLSearchParams(window.location.search).get('session');
@@ -391,6 +394,10 @@
                     return;
                 }
                 
+                // Initialize device ID
+                this.deviceId = localStorage.getItem('deviceId') || crypto.randomUUID();
+                localStorage.setItem('deviceId', this.deviceId);
+                
                 this.initializeSession();
                 
                 document.getElementById('attendanceForm').addEventListener('submit', (e) => {
@@ -399,13 +406,57 @@
                 });
             },
 
-            initializeSession: function() {
+            async initializeSession() {
                 this.updateConnectionStatus('connecting');
                 
                 try {
                     this.sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
                     this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
                     
+                    // Get user's IP address
+                    const userIP = await fetch('https://api.ipify.org?format=json')
+                        .then(res => res.json())
+                        .then(data => data.ip)
+                        .catch(() => 'unknown');
+                    
+                    // Assign or reuse token
+                    const tokenRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens`);
+                    const tokenSnap = await window.dbGet(tokenRef);
+                    const tokens = tokenSnap.val() || {};
+                    
+                    let assignedToken = null;
+                    
+                    // Check if device already has a token
+                    for (const [key, data] of Object.entries(tokens)) {
+                        if (data.issuedToDevice === this.deviceId) {
+                            assignedToken = { key, data };
+                            break;
+                        }
+                    }
+                    
+                    // Assign new token if none exists for this device
+                    if (!assignedToken) {
+                        const available = Object.entries(tokens).find(([_, d]) => !d.issuedToDevice);
+                        if (available) {
+                            const [token, data] = available;
+                            const newData = {
+                                ...data,
+                                issuedToDevice: this.deviceId,
+                                issuedToIP: userIP,
+                                issuedAt: Date.now()
+                            };
+                            await window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens/${token}`), newData);
+                            assignedToken = { key: token, data: newData };
+                        } else {
+                            this.showMessage("No available tokens. Contact instructor.", "danger");
+                            return;
+                        }
+                    }
+                    
+                    this.currentToken = assignedToken.key;
+                    this.tokenMeta = assignedToken.data;
+                    
+                    // Listen for session data
                     window.dbOnValue(this.sessionRef, (snapshot) => {
                         const data = snapshot.val();
                         
@@ -429,6 +480,7 @@
                         }
                     });
                     
+                    // Listen for attendees
                     window.dbOnValue(this.attendeesRef, (snapshot) => {
                         const attendees = snapshot.val() || {};
                         const attendeeList = Object.values(attendees);
@@ -511,6 +563,32 @@
                 if (this.sessionData.password && password !== this.sessionData.password) {
                     this.showMessage('Invalid password', 'danger');
                     return;
+                }
+                
+                // Validate token and check for suspicious activity
+                const tokenPath = `sessions/${this.currentSessionId}/tokens/${this.currentToken}`;
+                const tokenSnap = await window.dbGet(window.dbRef(window.database, tokenPath));
+                const tokenData = tokenSnap.val();
+
+                const currentIP = await fetch('https://api.ipify.org?format=json')
+                    .then(res => res.json())
+                    .then(data => data.ip)
+                    .catch(() => 'unknown');
+
+                let isSuspicious = false;
+
+                if (!tokenData) {
+                    isSuspicious = true;
+                } else {
+                    if (tokenData.used) isSuspicious = true;
+                    if (tokenData.issuedToDevice !== this.deviceId || tokenData.issuedToIP !== currentIP) {
+                        isSuspicious = true;
+                    }
+                }
+
+                // Flag suspicious activity but don't block submission
+                if (isSuspicious) {
+                    await window.dbSet(window.dbRef(window.database, tokenPath + "/flagged"), true);
                 }
                 
                 // Location verification with retry logic
@@ -602,10 +680,14 @@
                         name: student.name,
                         section: student.section || '',
                         timestamp: Date.now(),
-                        ip: ipAddress
+                        ip: ipAddress,
+                        token: this.currentToken
                     };
                     
                     await window.dbPush(this.attendeesRef, newAttendee);
+                    
+                    // Mark token as used
+                    await window.dbSet(window.dbRef(window.database, tokenPath + "/used"), true);
                     
                     this.showMessage(`Attendance recorded successfully for ${student.name}!`, 'success');
                     document.getElementById('student_id').value = '';
