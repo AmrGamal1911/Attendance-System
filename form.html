@@ -387,17 +387,30 @@
             locationAttempts: 0,
             maxLocationAttempts: 2,
             currentToken: null,
+            deviceId: null,
+            currentIP: null,
 
-            init: function() {
+            init: async function() {
                 this.currentSessionId = new URLSearchParams(window.location.search).get('session');
-                this.currentToken = this.generateToken();
+                this.deviceId = localStorage.getItem('deviceId') || crypto.randomUUID();
+                localStorage.setItem('deviceId', this.deviceId);
                 
                 if (!this.currentSessionId) {
                     this.showNoSession();
                     return;
                 }
                 
-                this.initializeSession();
+                // Get current IP
+                try {
+                    this.currentIP = await fetch('https://api.ipify.org?format=json')
+                        .then(res => res.json())
+                        .then(data => data.ip)
+                        .catch(() => 'unknown');
+                } catch (error) {
+                    this.currentIP = 'unknown';
+                }
+                
+                await this.initializeSession();
                 
                 document.getElementById('attendanceForm').addEventListener('submit', (e) => {
                     e.preventDefault();
@@ -405,146 +418,95 @@
                 });
             },
 
-            generateToken: function() {
-                // Generate a unique token for this device/session
-                return 'token_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now().toString(36);
-            },
-
-            async initializeSession() {
+            initializeSession: async function() {
                 this.updateConnectionStatus('connecting');
                 
                 try {
-                    console.log('Initializing session:', this.currentSessionId);
                     this.sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
                     this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
                     
-                    // Get current IP
-                    console.log('Fetching IP address...');
-                    const currentIP = await fetch('https://api.ipify.org?format=json')
-                        .then(res => res.json())
-                        .then(data => {
-                            console.log('IP fetched:', data.ip);
-                            return data.ip;
-                        })
-                        .catch(err => {
-                            console.error('IP fetch error:', err);
-                            return 'unknown';
-                        });
-
-                    console.log('Setting up session listener...');
-                    window.dbOnValue(this.sessionRef, async (snapshot) => {
-                        try {
-                            console.log('Session data received:', snapshot.exists());
-                            const data = snapshot.val();
-                            
-                            if (!data) {
-                                console.error('No session data found');
-                                this.showNoSession();
-                                return;
-                            }
-                            
-                            this.sessionData = data;
-                            console.log('Session active status:', data.active);
-
-                            // Block TA's IP
-                            if (currentIP === this.sessionData.taIP) {
-                                console.log('TA IP detected:', currentIP);
-                                this.showMessage("⚠️ Teaching Assistant device cannot submit attendance.", "danger");
-                                document.getElementById('submitBtn').disabled = true;
-                                return;
-                            }
-                            
-                            if (!this.sessionData.active) {
-                                console.log('Session is not active');
-                                this.showClosedSession();
-                                return;
-                            }
-
-                            // Check and assign token
-                            console.log('Fetching tokens...');
-                            const tokensSnap = await window.dbGet(window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens`));
-                            const tokens = tokensSnap.val() || {};
-                            console.log('Available tokens:', Object.keys(tokens).length);
-
-                            let assignedToken = null;
-                            const deviceId = localStorage.getItem('deviceId') || crypto.randomUUID();
-                            localStorage.setItem('deviceId', deviceId);
-                            console.log('Device ID:', deviceId);
-
-                            // Try reusing existing token
-                            for (const [key, data] of Object.entries(tokens)) {
-                                if (data.issuedToDevice === deviceId) {
-                                    console.log('Found existing token:', key);
-                                    assignedToken = { key, data };
-                                    break;
-                                }
-                            }
-
-                            // Assign new token if available
-                            if (!assignedToken) {
-                                console.log('Looking for available token...');
-                                const available = Object.entries(tokens).find(([_, d]) => !d.issuedToDevice);
-                                if (available) {
-                                    const [token, data] = available;
-                                    console.log('Assigning new token:', token);
-                                    const newData = {
-                                        ...data,
-                                        issuedToDevice: deviceId,
-                                        issuedToIP: currentIP,
-                                        issuedAt: Date.now()
-                                    };
-                                    await window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens/${token}`), newData);
-                                    assignedToken = { key: token, data: newData };
-                                } else {
-                                    console.log('No tokens available');
-                                    this.showMessage("❌ No tokens available. Attendance is closed.", "danger");
-                                    document.getElementById('submitBtn').disabled = true;
-                                    return;
-                                }
-                            }
-
-                            this.currentToken = assignedToken.key;
-                            console.log('Token assigned successfully:', this.currentToken);
-                            
-                            this.showActiveSession();
-                            this.updateConnectionStatus('connected');
-                            
-                            if (this.sessionData.password) {
-                                document.getElementById('passwordField').classList.remove('hidden');
-                            }
-                        } catch (error) {
-                            console.error('Error in session listener:', error);
-                            this.showMessage('Error processing session data', 'danger');
-                            this.updateConnectionStatus('error');
+                    // Check if this is TA's device
+                    const taIpSnap = await window.dbGet(window.dbRef(window.database, `sessions/${this.currentSessionId}/taIP`));
+                    const taIP = taIpSnap.val();
+                    
+                    if (this.currentIP === taIP) {
+                        this.showMessage("⚠️ TA device cannot submit attendance.", "danger");
+                        document.getElementById('submitBtn').disabled = true;
+                        return;
+                    }
+                    
+                    window.dbOnValue(this.sessionRef, (snapshot) => {
+                        const data = snapshot.val();
+                        
+                        if (!data) {
+                            this.showNoSession();
+                            return;
                         }
-                    }, (error) => {
-                        console.error('Session listener error:', error);
-                        this.showMessage('Connection error', 'danger');
-                        this.updateConnectionStatus('error');
+                        
+                        this.sessionData = data;
+                        
+                        if (!this.sessionData.active) {
+                            this.showClosedSession();
+                            return;
+                        }
+                        
+                        this.showActiveSession();
+                        this.updateConnectionStatus('connected');
+                        
+                        if (this.sessionData.password) {
+                            document.getElementById('passwordField').classList.remove('hidden');
+                        }
                     });
                     
-                    console.log('Setting up attendees listener...');
                     window.dbOnValue(this.attendeesRef, (snapshot) => {
-                        try {
-                            const attendees = snapshot.val() || {};
-                            const attendeeList = Object.values(attendees);
-                            console.log('Attendees count:', attendeeList.length);
+                        const attendees = snapshot.val() || {};
+                        const attendeeList = Object.values(attendees);
+                        
+                        if (this.sessionData) {
+                            this.sessionData.attendees = attendeeList;
+                            this.updateAttendanceCount();
                             
-                            if (this.sessionData) {
-                                this.sessionData.attendees = attendeeList;
-                                this.updateAttendanceCount();
-                                
-                                if (attendeeList.length >= this.sessionData.maxAttendees && this.sessionData.active) {
-                                    console.log('Session full, marking as inactive');
-                                    window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/active`), false);
-                                }
+                            if (attendeeList.length >= this.sessionData.maxAttendees && this.sessionData.active) {
+                                window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/active`), false);
                             }
-                        } catch (error) {
-                            console.error('Error in attendees listener:', error);
                         }
-                    }, (error) => {
-                        console.error('Attendees listener error:', error);
                     });
+                    
+                    // Assign or reuse token
+                    const tokenSnap = await window.dbGet(window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens`));
+                    const tokens = tokenSnap.val() || {};
+                    
+                    let assignedToken = null;
+                    
+                    // Try reusing existing token for this device
+                    for (const [key, data] of Object.entries(tokens)) {
+                        if (data.issuedToDevice === this.deviceId) {
+                            assignedToken = { key, data };
+                            break;
+                        }
+                    }
+                    
+                    // Assign new token if available
+                    if (!assignedToken) {
+                        const available = Object.entries(tokens).find(([_, d]) => !d.issuedToDevice);
+                        if (available) {
+                            const [token, data] = available;
+                            const newData = {
+                                ...data,
+                                issuedToDevice: this.deviceId,
+                                issuedToIP: this.currentIP,
+                                issuedAt: Date.now()
+                            };
+                            await window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens/${token}`), newData);
+                            assignedToken = { key: token, data: newData };
+                        } else {
+                            this.showMessage("❌ No tokens available. Attendance is closed.", "danger");
+                            document.getElementById('submitBtn').disabled = true;
+                            return;
+                        }
+                    }
+                    
+                    this.currentToken = assignedToken.key;
                     
                 } catch (error) {
                     console.error('Failed to initialize session:', error);
@@ -615,19 +577,6 @@
                     this.showMessage('Invalid password', 'danger');
                     return;
                 }
-
-                // Get current IP
-                const currentIP = await fetch('https://api.ipify.org?format=json')
-                    .then(res => res.json())
-                    .then(data => data.ip)
-                    .catch(() => 'unknown');
-
-                // Block TA's IP
-                if (currentIP === this.sessionData.taIP) {
-                    this.showMessage("⚠️ Teaching Assistant device cannot submit attendance.", "danger");
-                    document.getElementById('submitBtn').disabled = true;
-                    return;
-                }
                 
                 // Location verification with retry logic
                 if (this.sessionData.useLocation && this.sessionData.classLocation) {
@@ -681,30 +630,31 @@
                 }
                 
                 // Token verification
-                if (!this.currentToken) {
-                    this.showMessage("❌ No token assigned. Please refresh the page.", "danger");
-                    return;
-                }
-
                 const tokenPath = `sessions/${this.currentSessionId}/tokens/${this.currentToken}`;
                 const tokenSnap = await window.dbGet(window.dbRef(window.database, tokenPath));
                 const tokenData = tokenSnap.val();
 
-                if (!tokenData) {
-                    this.showMessage("❌ Invalid token. Please refresh the page.", "danger");
-                    return;
-                }
-
                 let isTokenMisused = false;
+                let originalStudentId = tokenData?.id;
                 let isSecondUser = false;
 
-                // Check if token was already used for a different student
-                if (tokenData.used && tokenData.id !== studentId) {
-                    isTokenMisused = true;
-                    isSecondUser = true;
-                } else if (!tokenData.used && tokenData.id !== studentId) {
-                    isTokenMisused = true;
-                    isSecondUser = true;
+                if (!tokenData) {
+                    // Shouldn't happen as we already assigned the token
+                    this.showMessage('Invalid token. Please refresh and try again.', 'danger');
+                    return;
+                } else {
+                    // Check if token was already used for a different student
+                    if (tokenData.used && tokenData.id !== studentId) {
+                        isTokenMisused = true;
+                        isSecondUser = true;
+                    } else if (!tokenData.used && tokenData.id !== studentId) {
+                        isTokenMisused = true;
+                        isSecondUser = true;
+                    } else if (!tokenData.used && tokenData.id === studentId) {
+                        // Acceptable case - first time use
+                    } else if (tokenData.used && tokenData.id === studentId) {
+                        // Re-scanning self again - acceptable
+                    }
                 }
 
                 if (isTokenMisused && isSecondUser) {
@@ -717,7 +667,7 @@
                         id: studentId,
                         name: "Flagged Submission",
                         timestamp: Date.now(),
-                        ip: currentIP,
+                        ip: this.currentIP,
                         token: this.currentToken,
                         flagged: true,
                         note: `Same token with ${tokenData.id}`
@@ -725,7 +675,7 @@
 
                     this.showMessage("⚠️ Token already used by another student. Your attendance was not counted.", "danger");
                     document.getElementById('submitBtn').disabled = true;
-                    return;
+                    return; // DO NOT submit attendance
                 }
                 
                 const attendeeSnap = await window.dbGet(this.attendeesRef);
@@ -760,7 +710,7 @@
                         name: student.name,
                         section: student.section || '',
                         timestamp: Date.now(),
-                        ip: currentIP,
+                        ip: this.currentIP,
                         token: this.currentToken
                     };
                     
