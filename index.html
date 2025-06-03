@@ -35,8 +35,8 @@
             measurementId: "G-D2WNX8RGRL"
         };
 
-        const firebaseApp = initializeApp(firebaseConfig);
-        window.database = getDatabase(firebaseApp);
+        const app = initializeApp(firebaseConfig);
+        window.database = getDatabase(app);
         window.dbRef = ref;
         window.dbSet = set;
         window.dbOnValue = onValue;
@@ -1279,12 +1279,9 @@
                     const finalizeSession = async () => {
                         try {
                             const sessionId = 'session_' + Date.now();
-
-                            // Get TA's IP for blocking
-                            const taIP = await fetch('https://api.ipify.org?format=json')
-                                .then(res => res.json())
-                                .then(data => data.ip)
-                                .catch(() => 'unknown');
+                            
+                            // Save TA's IP for blocking
+                            const taIP = await fetch('https://api.ipify.org?format=json').then(res => res.json()).then(data => data.ip).catch(() => 'unknown');
 
                             // Generate one token per student
                             const tokenList = {};
@@ -1317,7 +1314,7 @@
                                 deviceId: app.deviceId,
                                 existingWeeks: [...app.existingWeeks],
                                 maxExistingWeek: app.maxExistingWeek,
-                                taIP: taIP // Store TA's IP
+                                taIP
                             };
                             
                             if (useLocation && app.classLocation) {
@@ -1327,19 +1324,20 @@
                             try {
                                 const sessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
                                 await window.dbSet(sessionRef, newSession);
-
-                                // Save tokens
-                                const tokensRef = window.dbRef(window.database, `sessions/${sessionId}/tokens`);
-                                await window.dbSet(tokensRef, tokenList);
-
+                                
+                                // Save tokens to database
+                                await window.dbSet(window.dbRef(window.database, `sessions/${sessionId}/tokens`), tokenList);
+                                
                                 app.saveSessionToLocal(newSession);
                                 
                                 const attendeesRef = window.dbRef(window.database, `sessions/${sessionId}/attendees`);
+                                const tokensRef = window.dbRef(window.database, `sessions/${sessionId}/tokens`);
                                 
                                 const sessionData = {
                                     ...newSession,
                                     sessionRef,
                                     attendeesRef,
+                                    tokensRef,
                                     syncStatus: 'connecting'
                                 };
                                 
@@ -1562,16 +1560,16 @@
                 const tokensSnap = await window.dbGet(window.dbRef(window.database, `sessions/${sessionId}/tokens`));
                 const tokenMap = tokensSnap.val() || {};
                 
-                // Build token sharing notes
-                const tokenLinkNote = {};
+                // Token flags
+                const tokenNotes = {};
                 Object.entries(tokenMap).forEach(([token, data]) => {
                     if (data.flagged && data.secondStudentId) {
-                        tokenLinkNote[data.id] = `Same token with ${data.secondStudentId}`;
-                        tokenLinkNote[data.secondStudentId] = `Same token with ${data.id}`;
+                        tokenNotes[data.id] = `Same token with ${data.secondStudentId}`;
+                        tokenNotes[data.secondStudentId] = `Same token with ${data.id}`;
                     }
                 });
-                
-                // Build IP map for duplicate detection
+
+                // IP flags
                 const ipMap = {};
                 attendees.forEach(a => {
                     if (!a.ip) return;
@@ -1579,12 +1577,22 @@
                     ipMap[a.ip].push(a.id);
                 });
 
-                let reportData = [];
+                const ipNotes = {};
+                Object.entries(ipMap).forEach(([ip, ids]) => {
+                    if (ids.length > 1) {
+                        ids.forEach(id => {
+                            ipNotes[id] = `Same IP with ${ids.filter(x => x !== id).join(', ')}`;
+                        });
+                    }
+                });
+
+                // Final report data
+                const reportData = [];
                 
                 if (session.existingWeeks?.length > 0) {
-                    reportData = roster.map(student => {
+                    roster.forEach(student => {
                         const matched = attendees.find(a => a.id === student.id);
-                        const newRow = {
+                        const row = {
                             'Student ID': student.id,
                             'Name': student.name,
                             'Section': student.section || ''
@@ -1592,36 +1600,35 @@
                         
                         allWeeks.forEach(week => {
                             if (week === currentWeek) {
-                                newRow[`Week ${week}`] = matched ? 1 : 0;
-                                newRow[`Timestamp Week ${week}`] = matched ? 
+                                row[`Week ${week}`] = matched ? 1 : 0;
+                                row[`Timestamp Week ${week}`] = matched ? 
                                     new Date(matched.timestamp).toLocaleString() : 'N/A';
                             } else {
-                                newRow[`Week ${week}`] = student.weekData?.[week] || 0;
-                                newRow[`Timestamp Week ${week}`] = student[`Timestamp Week ${week}`] || 'N/A';
+                                row[`Week ${week}`] = student.weekData?.[week] || 0;
+                                row[`Timestamp Week ${week}`] = student[`Timestamp Week ${week}`] || 'N/A';
                             }
                         });
                         
-                        newRow['Total Attendance'] = allWeeks.reduce((sum, week) => {
-                            return sum + (Number(newRow[`Week ${week}`]) || 0);
+                        row['Total Attendance'] = allWeeks.reduce((sum, week) => {
+                            return sum + (Number(row[`Week ${week}`]) || 0);
                         }, 0);
 
                         // Add IP note if applicable
-                        const ipNote = ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
-                            `Same IP with ${ipMap[matched.ip].filter(id => id !== student.id).join(', ')}` : '';
-                            
+                        const ipNote = ipNotes[student.id] || '';
+                        
                         // Add token note if applicable
-                        const tokenNote = tokenLinkNote[student.id] || '';
+                        const tokenNote = tokenNotes[student.id] || '';
                         
                         // Combine notes
-                        newRow['Note'] = [ipNote, tokenNote].filter(Boolean).join(' | ');
+                        row['Note'] = [ipNote, tokenNote].filter(Boolean).join(' | ');
                         
                         // Add flagged column if token was misused
-                        newRow['Flagged'] = tokenNote ? 'Yes' : '';
+                        row['Flagged'] = tokenNote ? 'Yes' : '';
                         
-                        return newRow;
+                        reportData.push(row);
                     });
                 } else {
-                    reportData = roster.map(student => {
+                    roster.forEach(student => {
                         const matched = attendees.find(a => a.id === student.id);
                         const row = {
                             'Student ID': student.id,
@@ -1634,11 +1641,10 @@
                         };
 
                         // Add IP note if applicable
-                        const ipNote = ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
-                            `Same IP with ${ipMap[matched.ip].filter(id => id !== student.id).join(', ')}` : '';
-                            
+                        const ipNote = ipNotes[student.id] || '';
+                        
                         // Add token note if applicable
-                        const tokenNote = tokenLinkNote[student.id] || '';
+                        const tokenNote = tokenNotes[student.id] || '';
                         
                         // Combine notes
                         row['Note'] = [ipNote, tokenNote].filter(Boolean).join(' | ');
@@ -1646,9 +1652,25 @@
                         // Add flagged column if token was misused
                         row['Flagged'] = tokenNote ? 'Yes' : '';
                         
-                        return row;
+                        reportData.push(row);
                     });
                 }
+                
+                // Add flagged submissions at the end
+                attendees.filter(a => a.flagged).forEach(flagged => {
+                    if (!reportData.some(r => r['Student ID'] === flagged.id)) {
+                        reportData.push({
+                            'Student ID': flagged.id,
+                            'Name': flagged.name || 'Flagged Submission',
+                            'Section': flagged.section || '',
+                            [`Week ${currentWeek}`]: 0,
+                            'Total Attendance': 0,
+                            [`Timestamp Week ${currentWeek}`]: new Date(flagged.timestamp).toLocaleString(),
+                            'Note': flagged.note || 'Flagged submission',
+                            'Flagged': 'Yes'
+                        });
+                    }
+                });
                 
                 const columnOrder = ['Student ID', 'Name', 'Section'];
                 
@@ -1924,16 +1946,16 @@
                 const tokensSnap = await window.dbGet(window.dbRef(window.database, `sessions/${sessionId}/tokens`));
                 const tokenMap = tokensSnap.val() || {};
                 
-                // Build token sharing notes
-                const tokenLinkNote = {};
+                // Token flags
+                const tokenNotes = {};
                 Object.entries(tokenMap).forEach(([token, data]) => {
                     if (data.flagged && data.secondStudentId) {
-                        tokenLinkNote[data.id] = `Same token with ${data.secondStudentId}`;
-                        tokenLinkNote[data.secondStudentId] = `Same token with ${data.id}`;
+                        tokenNotes[data.id] = `Same token with ${data.secondStudentId}`;
+                        tokenNotes[data.secondStudentId] = `Same token with ${data.id}`;
                     }
                 });
-                
-                // Build IP map for duplicate detection
+
+                // IP flags
                 const ipMap = {};
                 attendees.forEach(a => {
                     if (!a.ip) return;
@@ -1941,41 +1963,96 @@
                     ipMap[a.ip].push(a.id);
                 });
 
-                const data = roster.map(student => {
-                    const matched = attendees.find(a => a.id === student.id);
-                    const row = {
-                        'Student ID': student.id,
-                        'Name': student.name,
-                        'Section': student.section || ''
-                    };
-                    
-                    allWeeks.forEach(w => {
-                        if (w === week) {
-                            row[`Week ${w}`] = matched ? 1 : 0;
-                            row[`Timestamp Week ${w}`] = matched ? 
-                                new Date(attendees.find(a => a.id === student.id).timestamp).toLocaleString() : 'N/A';
-                        } else {
-                            row[`Week ${w}`] = student.weekData?.[w] || 0;
-                            row[`Timestamp Week ${w}`] = student[`Timestamp Week ${w}`] || 'N/A';
-                        }
-                    });
-                    
-                    row['Total Attendance'] = allWeeks.reduce((sum, w) => sum + (Number(row[`Week ${w}`]) || 0), 0);
+                const ipNotes = {};
+                Object.entries(ipMap).forEach(([ip, ids]) => {
+                    if (ids.length > 1) {
+                        ids.forEach(id => {
+                            ipNotes[id] = `Same IP with ${ids.filter(x => x !== id).join(', ')}`;
+                        });
+                    }
+                });
 
-                    // Add IP note if applicable
-                    const ipNote = ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
-                        `Same IP with ${ipMap[matched.ip].filter(id => id !== student.id).join(', ')}` : '';
+                const data = [];
+                
+                if (session.existingWeeks?.length > 0) {
+                    roster.forEach(student => {
+                        const matched = attendees.find(a => a.id === student.id);
+                        const row = {
+                            'Student ID': student.id,
+                            'Name': student.name,
+                            'Section': student.section || ''
+                        };
                         
-                    // Add token note if applicable
-                    const tokenNote = tokenLinkNote[student.id] || '';
-                    
-                    // Combine notes
-                    row['Note'] = [ipNote, tokenNote].filter(Boolean).join(' | ');
-                    
-                    // Add flagged column if token was misused
-                    row['Flagged'] = tokenNote ? 'Yes' : '';
-                    
-                    return row;
+                        allWeeks.forEach(w => {
+                            if (w === week) {
+                                row[`Week ${w}`] = matched ? 1 : 0;
+                                row[`Timestamp Week ${w}`] = matched ? 
+                                    new Date(matched.timestamp).toLocaleString() : 'N/A';
+                            } else {
+                                row[`Week ${w}`] = student.weekData?.[w] || 0;
+                                row[`Timestamp Week ${w}`] = student[`Timestamp Week ${w}`] || 'N/A';
+                            }
+                        });
+                        
+                        row['Total Attendance'] = allWeeks.reduce((sum, w) => sum + (Number(row[`Week ${w}`]) || 0), 0);
+
+                        // Add IP note if applicable
+                        const ipNote = ipNotes[student.id] || '';
+                        
+                        // Add token note if applicable
+                        const tokenNote = tokenNotes[student.id] || '';
+                        
+                        // Combine notes
+                        row['Note'] = [ipNote, tokenNote].filter(Boolean).join(' | ');
+                        
+                        // Add flagged column if token was misused
+                        row['Flagged'] = tokenNote ? 'Yes' : '';
+                        
+                        data.push(row);
+                    });
+                } else {
+                    roster.forEach(student => {
+                        const matched = attendees.find(a => a.id === student.id);
+                        const row = {
+                            'Student ID': student.id,
+                            'Name': student.name,
+                            'Section': student.section || '',
+                            [`Week ${week}`]: matched ? 1 : 0,
+                            'Total Attendance': matched ? 1 : 0,
+                            [`Timestamp Week ${week}`]: matched ? 
+                                new Date(matched.timestamp).toLocaleString() : 'N/A'
+                        };
+
+                        // Add IP note if applicable
+                        const ipNote = ipNotes[student.id] || '';
+                        
+                        // Add token note if applicable
+                        const tokenNote = tokenNotes[student.id] || '';
+                        
+                        // Combine notes
+                        row['Note'] = [ipNote, tokenNote].filter(Boolean).join(' | ');
+                        
+                        // Add flagged column if token was misused
+                        row['Flagged'] = tokenNote ? 'Yes' : '';
+                        
+                        data.push(row);
+                    });
+                }
+                
+                // Add flagged submissions at the end
+                attendees.filter(a => a.flagged).forEach(flagged => {
+                    if (!data.some(r => r['Student ID'] === flagged.id)) {
+                        data.push({
+                            'Student ID': flagged.id,
+                            'Name': flagged.name || 'Flagged Submission',
+                            'Section': flagged.section || '',
+                            [`Week ${week}`]: 0,
+                            'Total Attendance': 0,
+                            [`Timestamp Week ${week}`]: new Date(flagged.timestamp).toLocaleString(),
+                            'Note': flagged.note || 'Flagged submission',
+                            'Flagged': 'Yes'
+                        });
+                    }
                 });
                 
                 const columnOrder = ['Student ID', 'Name', 'Section'];
@@ -2130,6 +2207,8 @@
                 app.initMap();
             }
         }
+
+        window.app = app;
     </script>
 </body>
 </html>
