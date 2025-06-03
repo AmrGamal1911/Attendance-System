@@ -326,6 +326,10 @@
             <div id="loadingSection" class="loading">
                 <div class="spinner"></div>
                 <p>Connecting to session...</p>
+                <p style="font-size: 0.9em; color: #666; margin-top: 10px;">
+                    <i class="fas fa-info-circle"></i> 
+                    This may take a few moments
+                </p>
             </div>
             
             <div id="activeSession" class="hidden">
@@ -387,135 +391,286 @@
             locationAttempts: 0,
             maxLocationAttempts: 2,
             currentToken: null,
-            deviceId: null,
+            connectionTimeout: null,
             currentIP: null,
 
             init: async function() {
-                this.currentSessionId = new URLSearchParams(window.location.search).get('session');
-                this.deviceId = localStorage.getItem('deviceId') || crypto.randomUUID();
-                localStorage.setItem('deviceId', this.deviceId);
-                
-                if (!this.currentSessionId) {
-                    this.showNoSession();
-                    return;
-                }
-                
-                // Get current IP
                 try {
-                    this.currentIP = await fetch('https://api.ipify.org?format=json')
-                        .then(res => res.json())
-                        .then(data => data.ip)
-                        .catch(() => 'unknown');
+                    this.currentSessionId = new URLSearchParams(window.location.search).get('session');
+                    if (!this.currentSessionId) {
+                        this.showNoSession();
+                        return;
+                    }
+
+                    // Set up timeout and event listener early
+                    this.setupTimeout();
+                    this.setupFormListener();
+                    
+                    // Initialize session in parallel with IP fetch
+                    const [currentIP] = await Promise.all([
+                        this.getIP(),
+                        this.initializeSession()
+                    ]);
+
+                    // Store IP for reuse
+                    this.currentIP = currentIP;
                 } catch (error) {
-                    this.currentIP = 'unknown';
+                    console.error('Initialization error:', error);
+                    this.handleError('Failed to initialize session');
                 }
-                
-                await this.initializeSession();
-                
+            },
+
+            setupTimeout: function() {
+                this.connectionTimeout = setTimeout(() => {
+                    if (document.getElementById('loadingSection').style.display !== 'none') {
+                        this.handleError('Connection timeout');
+                    }
+                }, 15000);
+            },
+
+            setupFormListener: function() {
                 document.getElementById('attendanceForm').addEventListener('submit', (e) => {
                     e.preventDefault();
                     this.submitAttendance();
                 });
             },
 
-            initializeSession: async function() {
-                this.updateConnectionStatus('connecting');
-                
+            async getIP() {
                 try {
-                    this.sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
-                    this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
-                    
-                    // Check if this is TA's device
-                    const taIpSnap = await window.dbGet(window.dbRef(window.database, `sessions/${this.currentSessionId}/taIP`));
-                    const taIP = taIpSnap.val();
-                    
-                    if (this.currentIP === taIP) {
-                        this.showMessage("⚠️ TA device cannot submit attendance.", "danger");
-                        document.getElementById('submitBtn').disabled = true;
-                        return;
-                    }
-                    
-                    window.dbOnValue(this.sessionRef, (snapshot) => {
-                        const data = snapshot.val();
-                        
-                        if (!data) {
-                            this.showNoSession();
-                            return;
-                        }
-                        
-                        this.sessionData = data;
-                        
-                        if (!this.sessionData.active) {
-                            this.showClosedSession();
-                            return;
-                        }
-                        
-                        this.showActiveSession();
-                        this.updateConnectionStatus('connected');
-                        
-                        if (this.sessionData.password) {
-                            document.getElementById('passwordField').classList.remove('hidden');
-                        }
-                    });
-                    
-                    window.dbOnValue(this.attendeesRef, (snapshot) => {
-                        const attendees = snapshot.val() || {};
-                        const attendeeList = Object.values(attendees);
-                        
-                        if (this.sessionData) {
-                            this.sessionData.attendees = attendeeList;
-                            this.updateAttendanceCount();
-                            
-                            if (attendeeList.length >= this.sessionData.maxAttendees && this.sessionData.active) {
-                                window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/active`), false);
-                            }
-                        }
-                    });
-                    
-                    // Assign or reuse token
-                    const tokenSnap = await window.dbGet(window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens`));
-                    const tokens = tokenSnap.val() || {};
-                    
-                    let assignedToken = null;
-                    
-                    // Try reusing existing token for this device
-                    for (const [key, data] of Object.entries(tokens)) {
-                        if (data.issuedToDevice === this.deviceId) {
-                            assignedToken = { key, data };
-                            break;
-                        }
-                    }
-                    
-                    // Assign new token if available
-                    if (!assignedToken) {
-                        const available = Object.entries(tokens).find(([_, d]) => !d.issuedToDevice);
-                        if (available) {
-                            const [token, data] = available;
-                            const newData = {
-                                ...data,
-                                issuedToDevice: this.deviceId,
-                                issuedToIP: this.currentIP,
-                                issuedAt: Date.now()
-                            };
-                            await window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens/${token}`), newData);
-                            assignedToken = { key: token, data: newData };
-                        } else {
-                            this.showMessage("❌ No tokens available. Attendance is closed.", "danger");
-                            document.getElementById('submitBtn').disabled = true;
-                            return;
-                        }
-                    }
-                    
-                    this.currentToken = assignedToken.key;
-                    
+                    const res = await fetch('https://api.ipify.org?format=json');
+                    const data = await res.json();
+                    return data.ip;
                 } catch (error) {
-                    console.error('Failed to initialize session:', error);
-                    this.showMessage('Failed to connect to session', 'danger');
-                    this.updateConnectionStatus('error');
+                    console.error('IP fetch error:', error);
+                    return 'unknown';
                 }
             },
 
+            async initializeSession() {
+                this.sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
+                this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
+
+                // Set up session listener
+                window.dbOnValue(this.sessionRef, this.handleSessionUpdate.bind(this));
+                
+                // Set up attendees listener
+                window.dbOnValue(this.attendeesRef, this.handleAttendeesUpdate.bind(this));
+            },
+
+            async handleSessionUpdate(snapshot) {
+                try {
+                    const data = snapshot.val();
+                    if (!data) {
+                        this.showNoSession();
+                        return;
+                    }
+
+                    this.sessionData = data;
+
+                    // Check TA IP
+                    if (this.currentIP === this.sessionData.taIP) {
+                        this.handleError('Teaching Assistant device cannot submit attendance');
+                        return;
+                    }
+
+                    if (!this.sessionData.active) {
+                        this.showClosedSession();
+                        return;
+                    }
+
+                    await this.handleTokenAssignment();
+                    
+                    this.showActiveSession();
+                    this.updateConnectionStatus('connected');
+                    
+                    if (this.sessionData.password) {
+                        document.getElementById('passwordField').classList.remove('hidden');
+                    }
+                } catch (error) {
+                    console.error('Session update error:', error);
+                    this.handleError('Error processing session data');
+                }
+            },
+
+            async handleTokenAssignment() {
+                const tokensSnap = await window.dbGet(window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens`));
+                const tokens = tokensSnap.val() || {};
+
+                const deviceId = localStorage.getItem('deviceId') || crypto.randomUUID();
+                localStorage.setItem('deviceId', deviceId);
+
+                // Try to find existing token
+                let assignedToken = Object.entries(tokens).find(([_, data]) => data.issuedToDevice === deviceId);
+                
+                // If no existing token, get a new one
+                if (!assignedToken) {
+                    assignedToken = Object.entries(tokens).find(([_, data]) => !data.issuedToDevice);
+                    
+                    if (!assignedToken) {
+                        this.handleError('No tokens available. Attendance is closed');
+                        return;
+                    }
+
+                    const [token, data] = assignedToken;
+                    await window.dbSet(
+                        window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens/${token}`),
+                        {
+                            ...data,
+                            issuedToDevice: deviceId,
+                            issuedToIP: this.currentIP,
+                            issuedAt: Date.now()
+                        }
+                    );
+                }
+
+                this.currentToken = assignedToken[0];
+            },
+
+            handleAttendeesUpdate(snapshot) {
+                try {
+                    const attendees = snapshot.val() || {};
+                    const attendeeList = Object.values(attendees);
+                    
+                    if (this.sessionData) {
+                        this.sessionData.attendees = attendeeList;
+                        this.updateAttendanceCount();
+                        
+                        if (attendeeList.length >= this.sessionData.maxAttendees && this.sessionData.active) {
+                            window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/active`), false);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Attendees update error:', error);
+                }
+            },
+
+            handleError(message) {
+                this.showMessage(message, 'danger');
+                this.updateConnectionStatus('error');
+                document.getElementById('submitBtn').disabled = true;
+                
+                if (message === 'Connection timeout') {
+                    document.getElementById('loadingSection').innerHTML = `
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-circle"></i>
+                            Connection timeout. Please try:
+                            <ul style="margin-top: 10px; margin-left: 20px; list-style-type: disc;">
+                                <li>Checking your internet connection</li>
+                                <li>Refreshing the page</li>
+                                <li>Using a different browser</li>
+                            </ul>
+                            <button onclick="location.reload()" class="btn" style="margin-top: 15px;">
+                                <i class="fas fa-sync"></i> Refresh Page
+                            </button>
+                        </div>
+                    `;
+                }
+            },
+
+            async submitAttendance() {
+                const studentId = document.getElementById('student_id').value.trim().toUpperCase();
+                const password = document.getElementById('password')?.value;
+                
+                if (!this.validateSubmission(studentId, password)) return;
+
+                const submitBtn = document.getElementById('submitBtn');
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
+                
+                try {
+                    await this.processAttendanceSubmission(studentId);
+                    this.handleSuccessfulSubmission();
+                } catch (error) {
+                    console.error('Submission error:', error);
+                    this.showMessage(error.message || 'Failed to submit attendance', 'danger');
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-check-circle"></i> Submit Attendance';
+                }
+            },
+
+            validateSubmission(studentId, password) {
+                if (!studentId) {
+                    this.showMessage('Please enter your student ID', 'danger');
+                    return false;
+                }
+
+                if (this.sessionData.password && password !== this.sessionData.password) {
+                    this.showMessage('Invalid password', 'danger');
+                    return false;
+                }
+
+                return true;
+            },
+
+            async processAttendanceSubmission(studentId) {
+                if (!this.currentToken) {
+                    throw new Error('No token assigned. Please refresh the page');
+                }
+
+                const tokenPath = `sessions/${this.currentSessionId}/tokens/${this.currentToken}`;
+                const tokenSnap = await window.dbGet(window.dbRef(window.database, tokenPath));
+                const tokenData = tokenSnap.val();
+
+                if (!tokenData) {
+                    throw new Error('Invalid token. Please refresh the page');
+                }
+
+                if (tokenData.used && tokenData.id !== studentId) {
+                    await this.handleTokenMisuse(tokenPath, tokenData, studentId);
+                    throw new Error('Token already used by another student. Your attendance was not counted');
+                }
+
+                const student = this.sessionData.roster?.find(s => s.id.toUpperCase() === studentId);
+                if (!student) {
+                    throw new Error('Student ID not found in roster');
+                }
+
+                if (this.sessionData.attendees?.some(a => a.id.toUpperCase() === studentId)) {
+                    throw new Error('Attendance already recorded for this student');
+                }
+
+                await this.recordAttendance(student, tokenPath);
+            },
+
+            async handleTokenMisuse(tokenPath, tokenData, studentId) {
+                await window.dbSet(window.dbRef(window.database, tokenPath + "/flagged"), true);
+                await window.dbSet(window.dbRef(window.database, tokenPath + "/secondStudentId"), studentId);
+
+                await window.dbPush(this.attendeesRef, {
+                    id: studentId,
+                    name: "Flagged Submission",
+                    timestamp: Date.now(),
+                    ip: this.currentIP,
+                    token: this.currentToken,
+                    flagged: true,
+                    note: `Same token with ${tokenData.id}`
+                });
+            },
+
+            async recordAttendance(student, tokenPath) {
+                const newAttendee = {
+                    id: student.id,
+                    name: student.name,
+                    section: student.section || '',
+                    timestamp: Date.now(),
+                    ip: this.currentIP,
+                    token: this.currentToken
+                };
+
+                await window.dbPush(this.attendeesRef, newAttendee);
+                await window.dbSet(window.dbRef(window.database, tokenPath + "/used"), true);
+                await window.dbSet(window.dbRef(window.database, tokenPath + "/id"), student.id);
+            },
+
+            handleSuccessfulSubmission() {
+                this.showMessage('Attendance recorded successfully!', 'success');
+                document.getElementById('student_id').value = '';
+                document.getElementById('password')?.value = '';
+            },
+
             showActiveSession: function() {
+                clearTimeout(this.connectionTimeout); // Clear timeout when session loads
                 document.getElementById('loadingSection').classList.add('hidden');
                 document.getElementById('activeSession').classList.remove('hidden');
                 document.getElementById('closedSession').classList.add('hidden');
@@ -530,6 +685,7 @@
             },
 
             showClosedSession: function() {
+                clearTimeout(this.connectionTimeout); // Clear timeout when session is closed
                 document.getElementById('loadingSection').classList.add('hidden');
                 document.getElementById('activeSession').classList.add('hidden');
                 document.getElementById('closedSession').classList.remove('hidden');
@@ -541,6 +697,7 @@
             },
 
             showNoSession: function() {
+                clearTimeout(this.connectionTimeout); // Clear timeout when no session
                 document.getElementById('loadingSection').classList.add('hidden');
                 document.getElementById('activeSession').classList.add('hidden');
                 document.getElementById('closedSession').classList.add('hidden');
@@ -561,179 +718,6 @@
                     }
                 } else {
                     document.getElementById('attendedCount').textContent = '0';
-                }
-            },
-
-            async submitAttendance() {
-                const studentId = document.getElementById('student_id').value.trim().toUpperCase();
-                const password = document.getElementById('password')?.value;
-                
-                if (!studentId) {
-                    this.showMessage('Please enter your student ID', 'danger');
-                    return;
-                }
-
-                if (this.sessionData.password && password !== this.sessionData.password) {
-                    this.showMessage('Invalid password', 'danger');
-                    return;
-                }
-                
-                // Location verification with retry logic
-                if (this.sessionData.useLocation && this.sessionData.classLocation) {
-                    this.locationAttempts = 0;
-                    let locationVerified = false;
-                    
-                    while (this.locationAttempts < this.maxLocationAttempts && !locationVerified) {
-                        try {
-                            const studentLocation = await this.getFreshLocation();
-                            if (!studentLocation) {
-                                throw new Error('Could not get location');
-                            }
-                            
-                            // Check location accuracy
-                            if (studentLocation.accuracy > 50) {
-                                throw new Error('Location accuracy too low');
-                            }
-                            
-                            const distance = this.calculateDistance(
-                                studentLocation, 
-                                this.sessionData.classLocation
-                            );
-                            
-                            const accuracyBuffer = studentLocation.accuracy + 10; // Add 10m buffer
-                            const maxAllowedDistance = this.sessionData.locationDistance + accuracyBuffer;
-                            
-                            if (distance > maxAllowedDistance) {
-                                this.showMessage(`You must be within ${this.sessionData.locationDistance}m of the class (approximately ${Math.round(distance)}m away)`, 'danger');
-                                return;
-                            }
-                            
-                            locationVerified = true;
-                        } catch (error) {
-                            this.locationAttempts++;
-                            console.error('Location attempt failed:', error);
-                            
-                            if (this.locationAttempts >= this.maxLocationAttempts) {
-                                this.showMessage('Location verification failed after multiple attempts', 'danger');
-                                return;
-                            }
-                            
-                            // Wait briefly before retrying
-                            await new Promise(resolve => setTimeout(resolve, 1000));
-                        }
-                    }
-                    
-                    if (!locationVerified) {
-                        this.showMessage('Location verification failed', 'danger');
-                        return;
-                    }
-                }
-                
-                // Token verification
-                const tokenPath = `sessions/${this.currentSessionId}/tokens/${this.currentToken}`;
-                const tokenSnap = await window.dbGet(window.dbRef(window.database, tokenPath));
-                const tokenData = tokenSnap.val();
-
-                let isTokenMisused = false;
-                let originalStudentId = tokenData?.id;
-                let isSecondUser = false;
-
-                if (!tokenData) {
-                    // Shouldn't happen as we already assigned the token
-                    this.showMessage('Invalid token. Please refresh and try again.', 'danger');
-                    return;
-                } else {
-                    // Check if token was already used for a different student
-                    if (tokenData.used && tokenData.id !== studentId) {
-                        isTokenMisused = true;
-                        isSecondUser = true;
-                    } else if (!tokenData.used && tokenData.id !== studentId) {
-                        isTokenMisused = true;
-                        isSecondUser = true;
-                    } else if (!tokenData.used && tokenData.id === studentId) {
-                        // Acceptable case - first time use
-                    } else if (tokenData.used && tokenData.id === studentId) {
-                        // Re-scanning self again - acceptable
-                    }
-                }
-
-                if (isTokenMisused && isSecondUser) {
-                    // Flag token
-                    await window.dbSet(window.dbRef(window.database, tokenPath + "/flagged"), true);
-                    await window.dbSet(window.dbRef(window.database, tokenPath + "/secondStudentId"), studentId);
-
-                    // Write log record for admin
-                    await window.dbPush(this.attendeesRef, {
-                        id: studentId,
-                        name: "Flagged Submission",
-                        timestamp: Date.now(),
-                        ip: this.currentIP,
-                        token: this.currentToken,
-                        flagged: true,
-                        note: `Same token with ${tokenData.id}`
-                    });
-
-                    this.showMessage("⚠️ Token already used by another student. Your attendance was not counted.", "danger");
-                    document.getElementById('submitBtn').disabled = true;
-                    return; // DO NOT submit attendance
-                }
-                
-                const attendeeSnap = await window.dbGet(this.attendeesRef);
-                const attendees = attendeeSnap.val() || {};
-                const attendeeList = Object.values(attendees);
-                
-                if (attendeeList.length >= this.sessionData.maxAttendees) {
-                    this.showMessage('This session is full', 'danger');
-                    return;
-                }
-                
-                const student = this.sessionData.roster ? 
-                    this.sessionData.roster.find(s => s.id.toUpperCase() === studentId) : null;
-                
-                if (!student) {
-                    this.showMessage('Student ID not found in roster', 'danger');
-                    return;
-                }
-                
-                if (attendeeList.some(a => a.id.toUpperCase() === studentId)) {
-                    this.showMessage('Attendance already recorded for this student', 'danger');
-                    return;
-                }
-                
-                const submitBtn = document.getElementById('submitBtn');
-                submitBtn.disabled = true;
-                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
-                
-                try {
-                    const newAttendee = {
-                        id: student.id,
-                        name: student.name,
-                        section: student.section || '',
-                        timestamp: Date.now(),
-                        ip: this.currentIP,
-                        token: this.currentToken
-                    };
-                    
-                    await window.dbPush(this.attendeesRef, newAttendee);
-                    
-                    // Mark token as used
-                    await window.dbSet(window.dbRef(window.database, tokenPath + "/used"), true);
-                    await window.dbSet(window.dbRef(window.database, tokenPath + "/id"), student.id);
-                    
-                    this.showMessage(`Attendance recorded successfully for ${student.name}!`, 'success');
-                    document.getElementById('student_id').value = '';
-                    if (password) document.getElementById('password').value = '';
-                    
-                    setTimeout(() => {
-                        this.showMessage('', 'success');
-                    }, 3000);
-                    
-                } catch (error) {
-                    console.error('Error submitting attendance:', error);
-                    this.showMessage('Failed to submit attendance. Please try again.', 'danger');
-                } finally {
-                    submitBtn.disabled = false;
-                    submitBtn.innerHTML = '<i class="fas fa-check-circle"></i> Submit Attendance';
                 }
             },
 
