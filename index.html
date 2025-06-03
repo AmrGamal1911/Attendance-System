@@ -1489,30 +1489,15 @@
                     return;
                 }
                 
-                // Build map of IPs to IDs
-                const ipMap = {};
-                attendees.forEach(a => {
-                    if (!a.ip) return;
-                    if (!ipMap[a.ip]) ipMap[a.ip] = [];
-                    ipMap[a.ip].push(a.id);
-                });
-
                 const attendeesHtml = attendees
                     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
                     .map(attendee => {
-                        let ipNote = '';
-                        const others = ipMap[attendee.ip]?.filter(id => id !== attendee.id);
-                        if (others?.length > 0) {
-                            ipNote = `<span class="text-red-500"><i class="fas fa-exclamation-triangle"></i> Same IP with ${others.join(', ')}</span>`;
-                        }
-
                         return `
                             <div class="attendee-item">
                                 <div class="attendee-info">
                                     <span class="attendee-name">${attendee.name}</span>
                                     <span class="attendee-details">
-                                        ID: ${attendee.id} | Section: ${attendee.section} <br>
-                                        ${ipNote}
+                                        ID: ${attendee.id} | Section: ${attendee.section}
                                     </span>
                                 </div>
                                 <div class="attendee-time">
@@ -1548,15 +1533,15 @@
                 const tokenLinkNote = {};
                 Object.entries(tokenMap).forEach(([token, data]) => {
                     if (data.flagged && data.secondStudentId) {
-                        tokenLinkNote[data.id] = `Token shared with ID: ${data.secondStudentId}`;
-                        tokenLinkNote[data.secondStudentId] = `Token shared with ID: ${data.id}`;
+                        // Only mark the second student as using a shared token
+                        tokenLinkNote[data.secondStudentId] = `Token already used by ID: ${data.id}`;
                     }
                 });
                 
                 // Build IP map for duplicate detection
                 const ipMap = {};
                 attendees.forEach(a => {
-                    if (!a.ip || a.ip === session.taIpAddress) return; // Skip TA's IP
+                    if (!a.ip || a.ip === session.taIpAddress) return;
                     if (!ipMap[a.ip]) ipMap[a.ip] = [];
                     ipMap[a.ip].push(a.id);
                 });
@@ -1574,7 +1559,7 @@
                         
                         allWeeks.forEach(week => {
                             if (week === currentWeek) {
-                                // Only prevent attendance if token was misused
+                                // Only prevent attendance for students who used someone else's token
                                 const hasTokenFlag = tokenLinkNote[student.id] ? true : false;
                                 newRow[`Week ${week}`] = matched && !hasTokenFlag ? 1 : 0;
                                 newRow[`Timestamp Week ${week}`] = matched ? 
@@ -1589,7 +1574,7 @@
                             return sum + (Number(newRow[`Week ${week}`]) || 0);
                         }, 0);
 
-                        // Add IP note if applicable (excluding TA's IP)
+                        // Add IP note if applicable
                         const ipNote = matched?.ip !== session.taIpAddress && ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
                             `IP shared with IDs: ${ipMap[matched.ip].filter(id => id !== student.id).join(', ')}` : '';
                             
@@ -1607,7 +1592,7 @@
                 } else {
                     reportData = roster.map(student => {
                         const matched = attendees.find(a => a.id === student.id);
-                        // Only prevent attendance if token was misused
+                        // Only prevent attendance for students who used someone else's token
                         const hasTokenFlag = tokenLinkNote[student.id] ? true : false;
                         const row = {
                             'Student ID': student.id,
@@ -1619,7 +1604,7 @@
                                 new Date(matched.timestamp).toLocaleString() : 'N/A'
                         };
 
-                        // Add IP note if applicable (excluding TA's IP)
+                        // Add IP note if applicable
                         const ipNote = matched?.ip !== session.taIpAddress && ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
                             `IP shared with IDs: ${ipMap[matched.ip].filter(id => id !== student.id).join(', ')}` : '';
                             
