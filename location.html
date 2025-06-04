@@ -128,7 +128,6 @@
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
         import { getDatabase, ref, set } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
 
-        // Initialize Firebase with your config
         const firebaseConfig = {
             apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
             authDomain: "eelu-attendance.firebaseapp.com",
@@ -140,18 +139,13 @@
             measurementId: "G-D2WNX8RGRL"
         };
 
-        try {
-            const firebaseApp = initializeApp(firebaseConfig);
-            const database = getDatabase(firebaseApp);
+        const firebaseApp = initializeApp(firebaseConfig);
+        const database = getDatabase(firebaseApp);
 
-            // Make Firebase functions available globally
-            window.database = database;
-            window.dbRef = ref;
-            window.dbSet = set;
-        } catch (error) {
-            console.error('Firebase initialization error:', error);
-            window.showMessage('Failed to initialize Firebase: ' + error.message, 'danger');
-        }
+        // Make Firebase functions available globally
+        window.database = database;
+        window.dbRef = ref;
+        window.dbSet = set;
 
         window.sendLocation = async function(position) {
             const params = new URLSearchParams(window.location.search);
@@ -165,11 +159,12 @@
             try {
                 document.getElementById('spinner').style.display = 'block';
                 document.getElementById('getLocationBtn').disabled = true;
-
+                
+                // Verify Firebase is initialized
                 if (!window.database || !window.dbRef) {
                     throw new Error('Firebase not properly initialized');
                 }
-                
+
                 // Only store location data, no listeners needed
                 const locationRef = window.dbRef(window.database, `tempLocations/${locationId}`);
                 await window.dbSet(locationRef, {
