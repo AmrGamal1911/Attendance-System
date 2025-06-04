@@ -1719,7 +1719,7 @@
                     `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
             }
 
-            openLocationModal: function() {
+            openLocationModal() {
                 document.getElementById('locationQRModal').classList.remove('hidden');
                 document.getElementById('locationStatus').classList.remove('hidden');
                 
@@ -1768,6 +1768,67 @@
                             `Current location: ${locationData.latitude.toFixed(6)}, ${locationData.longitude.toFixed(6)}`;
                     }
                 });
+            }
+
+            closeLocationModal() {
+                document.getElementById('locationQRModal').classList.add('hidden');
+                if (this.locationRef) {
+                    window.dbOff(this.locationRef);
+                    this.locationRef = null;
+                }
+            }
+
+            closeFullscreenQR() {
+                document.getElementById('qrModal').style.display = 'none';
+            }
+
+            showFullscreenQR(qrContent) {
+                const qrModal = document.getElementById('qrModal');
+                const fullscreenQr = document.getElementById('fullscreenQr');
+                
+                // Generate QR code
+                const qr = qrcode(0, 'L');
+                qr.addData(qrContent);
+                qr.make();
+                
+                fullscreenQr.innerHTML = qr.createImgTag(10);
+                qrModal.style.display = 'flex';
+            }
+
+            setupVoiceFeedback() {
+                const voiceBtn = document.getElementById('voiceBtn');
+                let isListening = false;
+
+                voiceBtn.addEventListener('click', () => {
+                    if (!isListening) {
+                        this.showMessage('Listening for voice commands...', 'info');
+                        voiceBtn.innerHTML = '<i class="fas fa-microphone-slash"></i>';
+                        voiceBtn.style.background = 'var(--danger)';
+                    } else {
+                        this.showMessage('Voice commands disabled', 'info');
+                        voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+                        voiceBtn.style.background = 'var(--gradient)';
+                    }
+                    isListening = !isListening;
+                });
+            }
+
+            showSessionFeedback(type, message) {
+                const feedbackDiv = document.createElement('div');
+                feedbackDiv.className = 'session-feedback';
+                feedbackDiv.innerHTML = `
+                    <div class="alert alert-${type}">
+                        <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+                        ${message}
+                    </div>
+                `;
+                
+                document.querySelector('.session-card').appendChild(feedbackDiv);
+                
+                // Auto-remove after 5 seconds
+                setTimeout(() => {
+                    feedbackDiv.remove();
+                }, 5000);
             }
         }
 
