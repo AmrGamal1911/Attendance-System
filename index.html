@@ -778,6 +778,20 @@
         .text-red-500 {
             color: #ef4444;
         }
+        
+        .spinner {
+            width: 30px;
+            height: 30px;
+            border: 3px solid rgba(102, 126, 234, 0.1);
+            border-radius: 50%;
+            border-top-color: var(--primary);
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -899,31 +913,19 @@
     </div>
 
     <!-- Location Picker Modal -->
-    <div id="locationModal" class="modal hidden">
+    <div id="locationQRModal" class="modal hidden">
         <div class="modal-content">
-            <h2><i class="fas fa-map-marker-alt"></i> Set Class Location</h2>
+            <h2><i class="fas fa-qrcode"></i> Set Location via Mobile</h2>
+            <p class="text-center mb-4">Scan this QR code with your mobile device to set the class location</p>
             
-            <div class="form-group">
-                <label for="modalLatitude">
-                    <i class="fas fa-map-marker-alt"></i>
-                    Latitude
-                </label>
-                <input type="number" id="modalLatitude" step="any" placeholder="Enter latitude">
-                
-                <label for="modalLongitude">
-                    <i class="fas fa-map-marker-alt"></i>
-                    Longitude
-                </label>
-                <input type="number" id="modalLongitude" step="any" placeholder="Enter longitude">
+            <div id="locationQRCode" class="text-center"></div>
+            
+            <div id="locationStatus" class="alert alert-info mt-4">
+                Waiting for location from mobile device...
+                <div class="spinner mt-2"></div>
             </div>
-
-            <div class="flex gap-4">
-                <button onclick="app.useCurrentLocation()" class="btn btn-secondary">
-                    <i class="fas fa-location-arrow"></i> Use Current Location
-                </button>
-                <button onclick="app.confirmLocation()" class="btn btn-success">
-                    <i class="fas fa-check"></i> Confirm Location
-                </button>
+            
+            <div class="flex gap-4 mt-4">
                 <button onclick="app.closeLocationModal()" class="btn btn-danger">
                     <i class="fas fa-times"></i> Cancel
                 </button>
@@ -934,41 +936,6 @@
     <!-- Voice Command Button -->
     <div class="voice-btn" id="voiceBtn" title="Voice Commands">
         <i class="fas fa-microphone"></i>
-    </div>
-
-    <!-- Add this HTML for manual location input (after the file-upload section) -->
-    <div id="manualLocationInputs" class="form-group" style="display: none;">
-        <label for="manualLatitude">
-            <i class="fas fa-map-marker-alt"></i>
-            Latitude
-        </label>
-        <input type="number" id="manualLatitude" step="any" placeholder="Enter latitude">
-        
-        <label for="manualLongitude">
-            <i class="fas fa-map-marker-alt"></i>
-            Longitude
-        </label>
-        <input type="number" id="manualLongitude" step="any" placeholder="Enter longitude">
-    </div>
-
-    <!-- Add this HTML after the location modal -->
-    <div id="locationQRModal" class="modal hidden">
-        <div class="modal-content">
-            <h2><i class="fas fa-qrcode"></i> Set Location via Mobile</h2>
-            <p class="text-center mb-4">Scan this QR code with your mobile device to set the class location</p>
-            
-            <div id="locationQRCode" class="text-center"></div>
-            
-            <div id="locationStatus" class="alert alert-info mt-4 hidden">
-                Waiting for location from mobile device...
-            </div>
-            
-            <div class="flex gap-4 mt-4">
-                <button onclick="app.closeLocationQRModal()" class="btn btn-danger">
-                    <i class="fas fa-times"></i> Cancel
-                </button>
-            </div>
-        </div>
     </div>
 
     <script>
@@ -1083,18 +1050,43 @@
             },
 
             openLocationModal: function() {
-                document.getElementById('locationModal').classList.remove('hidden');
-                document.body.style.overflow = 'hidden';
+                const locationId = 'loc_' + Date.now();
+                const baseUrl = window.location.origin;
+                const locationUrl = `${baseUrl}/location.html?id=${locationId}&session=${this.currentSessionId}`;
                 
-                if (!this.map) {
-                    this.initMap();
-                }
+                // Generate QR code
+                const qr = qrcode(0, 'L');
+                qr.addData(locationUrl);
+                qr.make();
+                
+                document.getElementById('locationQRCode').innerHTML = qr.createImgTag(8);
+                document.getElementById('locationQRModal').classList.remove('hidden');
+                
+                // Listen for location update in Firebase
+                const locationRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/tempLocation/${locationId}`);
+                window.dbOnValue(locationRef, (snapshot) => {
+                    const locationData = snapshot.val();
+                    if (locationData) {
+                        this.classLocation = {
+                            lat: locationData.latitude,
+                            lng: locationData.longitude,
+                            accuracy: locationData.accuracy
+                        };
+                        
+                        document.getElementById('locationPreview').textContent = 
+                            `Location set to: ${locationData.latitude.toFixed(6)}, ${locationData.longitude.toFixed(6)} (Accuracy: ${locationData.accuracy}m)`;
+                        
+                        // Clean up the temporary location data
+                        window.dbSet(locationRef, null);
+                        
+                        this.closeLocationModal();
+                        this.showMessage('Location successfully set from mobile device!', 'success');
+                    }
+                });
             },
-
+            
             closeLocationModal: function() {
-                document.getElementById('locationModal').classList.add('hidden');
-                document.body.style.overflow = 'auto';
-                this.selectedLocation = null;
+                document.getElementById('locationQRModal').classList.add('hidden');
             },
 
             useCurrentLocation: function() {
@@ -2251,7 +2243,6 @@
                 
                 document.getElementById('locationQRCode').innerHTML = qr.createImgTag(8);
                 document.getElementById('locationQRModal').classList.remove('hidden');
-                document.getElementById('locationStatus').classList.remove('hidden');
                 
                 // Listen for location update in Firebase
                 const locationRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/tempLocation/${locationId}`);
@@ -2270,13 +2261,13 @@
                         // Clean up the temporary location data
                         window.dbSet(locationRef, null);
                         
-                        this.closeLocationQRModal();
+                        this.closeLocationModal();
                         this.showMessage('Location successfully set from mobile device!', 'success');
                     }
                 });
             },
             
-            closeLocationQRModal: function() {
+            closeLocationModal: function() {
                 document.getElementById('locationQRModal').classList.add('hidden');
             }
         };
