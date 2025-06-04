@@ -13,26 +13,26 @@
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
         import { getDatabase, ref, set, onValue, push, serverTimestamp, off, get } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
-            authDomain: "eelu-attendance.firebaseapp.com",
-            databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
-            projectId: "eelu-attendance",
-            storageBucket: "eelu-attendance.appspot.com",
-            messagingSenderId: "5132239076",
-            appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
-            measurementId: "G-D2WNX8RGRL"
-        };
+            const firebaseConfig = {
+                apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
+                authDomain: "eelu-attendance.firebaseapp.com",
+                databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
+                projectId: "eelu-attendance",
+                storageBucket: "eelu-attendance.appspot.com",
+                messagingSenderId: "5132239076",
+                appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
+                measurementId: "G-D2WNX8RGRL"
+            };
 
         const app = initializeApp(firebaseConfig);
         window.database = getDatabase(app);
-        window.dbRef = ref;
-        window.dbSet = set;
-        window.dbOnValue = onValue;
-        window.dbPush = push;
+            window.dbRef = ref;
+            window.dbSet = set;
+            window.dbOnValue = onValue;
+            window.dbPush = push;
         window.dbServerTimestamp = serverTimestamp;
-        window.dbOff = off;
-        window.dbGet = get;
+            window.dbOff = off;
+            window.dbGet = get;
     </script>
     
     <style>
@@ -921,7 +921,7 @@
             <div id="locationQRCode" class="text-center"></div>
             
             <div id="locationStatus" class="alert alert-info mt-4">
-                Waiting for location from mobile device...
+                <div id="locationPreview">Waiting for location from mobile device...</div>
                 <div class="spinner mt-2"></div>
             </div>
             
@@ -971,170 +971,6 @@
                 this.initVoiceCommands();
                 this.loadSessionHistory();
                 this.initializeApp();
-            },
-
-            initMap: function() {
-                const mapOptions = {
-                    zoom: 15,
-                    center: { lat: 30.0444, lng: 31.2357 }, // Default to Cairo
-                    mapTypeControl: false,
-                    streetViewControl: false
-                };
-                
-                this.map = new google.maps.Map(document.getElementById('map'), mapOptions);
-                this.marker = new google.maps.Marker({
-                    map: this.map,
-                    draggable: true
-                });
-
-                // Check if user is TA
-                const isTA = localStorage.getItem('userRole') === 'ta';
-                const manualLocationInputs = document.getElementById('manualLocationInputs');
-                
-                if (isTA) {
-                    // Show manual location inputs for TAs
-                    manualLocationInputs.style.display = 'block';
-                    
-                    // Add event listeners for manual input
-                    document.getElementById('manualLatitude').addEventListener('change', () => this.updateLocationFromManualInput());
-                    document.getElementById('manualLongitude').addEventListener('change', () => this.updateLocationFromManualInput());
-                    
-                    // Initialize with default location
-                    this.updateMap(30.0444, 31.2357);
-                } else {
-                    // For students, use device location
-                    manualLocationInputs.style.display = 'none';
-                    if (navigator.geolocation) {
-                        navigator.geolocation.getCurrentPosition(
-                            (pos) => {
-                                const lat = pos.coords.latitude;
-                                const lng = pos.coords.longitude;
-                                this.updateMap(lat, lng);
-                            },
-                            (error) => {
-                                console.error('Error getting location:', error);
-                                this.showError('Could not get your location. Please make sure location services are enabled.');
-                            }
-                        );
-                    } else {
-                        this.showError('Geolocation is not supported by your browser');
-                    }
-                }
-
-                // Add marker drag event
-                google.maps.event.addListener(this.marker, 'dragend', () => {
-                    const position = this.marker.getPosition();
-                    this.updateMap(position.lat(), position.lng());
-                    if (isTA) {
-                        // Update manual inputs when marker is dragged
-                        document.getElementById('manualLatitude').value = position.lat();
-                        document.getElementById('manualLongitude').value = position.lng();
-                    }
-                });
-            },
-
-            updateLocationFromManualInput: function() {
-                const lat = parseFloat(document.getElementById('manualLatitude').value);
-                const lng = parseFloat(document.getElementById('manualLongitude').value);
-                
-                if (!isNaN(lat) && !isNaN(lng)) {
-                    this.updateMap(lat, lng);
-                }
-            },
-
-            updateMap: function(lat, lng) {
-                const position = new google.maps.LatLng(lat, lng);
-                this.map.setCenter(position);
-                this.marker.setPosition(position);
-                this.classLocation = { lat, lng };
-            },
-
-            openLocationModal: function() {
-                const locationId = 'loc_' + Date.now();
-                const baseUrl = window.location.origin;
-                const locationUrl = `${baseUrl}/location.html?id=${locationId}&session=${this.currentSessionId}`;
-                
-                // Generate QR code
-                const qr = qrcode(0, 'L');
-                qr.addData(locationUrl);
-                qr.make();
-                
-                document.getElementById('locationQRCode').innerHTML = qr.createImgTag(8);
-                document.getElementById('locationQRModal').classList.remove('hidden');
-                
-                // Listen for location update in Firebase
-                const locationRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/tempLocation/${locationId}`);
-                window.dbOnValue(locationRef, (snapshot) => {
-                    const locationData = snapshot.val();
-                    if (locationData) {
-                        this.classLocation = {
-                            lat: locationData.latitude,
-                            lng: locationData.longitude,
-                            accuracy: locationData.accuracy
-                        };
-                        
-                        document.getElementById('locationPreview').textContent = 
-                            `Location set to: ${locationData.latitude.toFixed(6)}, ${locationData.longitude.toFixed(6)} (Accuracy: ${locationData.accuracy}m)`;
-                        
-                        // Clean up the temporary location data
-                        window.dbSet(locationRef, null);
-                        
-                        this.closeLocationModal();
-                        this.showMessage('Location successfully set from mobile device!', 'success');
-                    }
-                });
-            },
-            
-            closeLocationModal: function() {
-                document.getElementById('locationQRModal').classList.add('hidden');
-            },
-
-            useCurrentLocation: function() {
-                if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition((pos) => {
-                        const location = {
-                            lat: pos.coords.latitude,
-                            lng: pos.coords.longitude
-                        };
-                        
-                        document.getElementById('modalLatitude').value = location.lat;
-                        document.getElementById('modalLongitude').value = location.lng;
-                        
-                        this.selectedLocation = location;
-                        this.showMessage('Current location set!', 'success');
-                    }, (err) => {
-                        this.showMessage('Could not get current location: ' + err.message, 'danger');
-                    });
-                } else {
-                    this.showMessage('Geolocation is not supported by your browser', 'danger');
-                }
-            },
-
-            confirmLocation: function() {
-                const lat = parseFloat(document.getElementById('modalLatitude').value);
-                const lng = parseFloat(document.getElementById('modalLongitude').value);
-                
-                if (isNaN(lat) || isNaN(lng)) {
-                    this.showMessage('Please enter valid latitude and longitude values', 'danger');
-                    return;
-                }
-                
-                this.classLocation = { lat, lng };
-                document.getElementById('locationPreview').textContent = 
-                    `Location set to: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-                
-                this.closeLocationModal();
-                this.showMessage('Class location set successfully!', 'success');
-            },
-
-            updateSubjectName: function() {
-                const newSubject = document.getElementById('subjectNameInput').value.trim();
-                if (newSubject) {
-                    this.subjectName = newSubject;
-                    this.showMessage('Subject name updated successfully!', 'success');
-                } else {
-                    this.showMessage('Please enter a valid subject name', 'danger');
-                }
             },
 
             setupDragAndDrop: function() {
@@ -1546,7 +1382,7 @@
                     if (!ipMap[a.ip]) ipMap[a.ip] = [];
                     ipMap[a.ip].push(a.id);
                 });
-
+                
                 const attendeesHtml = attendees
                     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
                     .map(attendee => {
@@ -1649,7 +1485,7 @@
 
                         // Add IP note if applicable
                         const ipNote = ipNotes[student.id] || '';
-                        
+                            
                         // Add token note if applicable
                         const tokenNote = tokenNotes[student.id] || '';
                         
@@ -1676,7 +1512,7 @@
 
                         // Add IP note if applicable
                         const ipNote = ipNotes[student.id] || '';
-                        
+                            
                         // Add token note if applicable
                         const tokenNote = tokenNotes[student.id] || '';
                         
@@ -2010,38 +1846,38 @@
                 
                 if (session.existingWeeks?.length > 0) {
                     roster.forEach(student => {
-                        const matched = attendees.find(a => a.id === student.id);
-                        const row = {
-                            'Student ID': student.id,
-                            'Name': student.name,
-                            'Section': student.section || ''
-                        };
-                        
-                        allWeeks.forEach(w => {
-                            if (w === week) {
-                                row[`Week ${w}`] = matched ? 1 : 0;
-                                row[`Timestamp Week ${w}`] = matched ? 
+                    const matched = attendees.find(a => a.id === student.id);
+                    const row = {
+                        'Student ID': student.id,
+                        'Name': student.name,
+                        'Section': student.section || ''
+                    };
+                    
+                    allWeeks.forEach(w => {
+                        if (w === week) {
+                            row[`Week ${w}`] = matched ? 1 : 0;
+                            row[`Timestamp Week ${w}`] = matched ? 
                                     new Date(matched.timestamp).toLocaleString() : 'N/A';
-                            } else {
-                                row[`Week ${w}`] = student.weekData?.[w] || 0;
-                                row[`Timestamp Week ${w}`] = student[`Timestamp Week ${w}`] || 'N/A';
-                            }
-                        });
-                        
-                        row['Total Attendance'] = allWeeks.reduce((sum, w) => sum + (Number(row[`Week ${w}`]) || 0), 0);
+                        } else {
+                            row[`Week ${w}`] = student.weekData?.[w] || 0;
+                            row[`Timestamp Week ${w}`] = student[`Timestamp Week ${w}`] || 'N/A';
+                        }
+                    });
+                    
+                    row['Total Attendance'] = allWeeks.reduce((sum, w) => sum + (Number(row[`Week ${w}`]) || 0), 0);
 
-                        // Add IP note if applicable
+                    // Add IP note if applicable
                         const ipNote = ipNotes[student.id] || '';
                         
-                        // Add token note if applicable
+                    // Add token note if applicable
                         const tokenNote = tokenNotes[student.id] || '';
-                        
-                        // Combine notes
+                    
+                    // Combine notes
                         row['Note'] = [ipNote, tokenNote].filter(Boolean).join(' | ');
-                        
-                        // Add flagged column if token was misused
-                        row['Flagged'] = tokenNote ? 'Yes' : '';
-                        
+                    
+                    // Add flagged column if token was misused
+                    row['Flagged'] = tokenNote ? 'Yes' : '';
+                    
                         data.push(row);
                     });
                 } else {
@@ -2269,18 +2105,22 @@
             
             closeLocationModal: function() {
                 document.getElementById('locationQRModal').classList.add('hidden');
+            },
+
+            updateSubjectName: function() {
+                const newSubject = document.getElementById('subjectNameInput').value.trim();
+                if (newSubject) {
+                    this.subjectName = newSubject;
+                    this.showMessage('Subject name updated successfully!', 'success');
+                } else {
+                    this.showMessage('Please enter a valid subject name', 'danger');
+                }
             }
         };
 
         document.addEventListener('DOMContentLoaded', function() {
             app.init();
         });
-
-        function initMap() {
-            if (typeof app !== 'undefined') {
-                app.initMap();
-            }
-        }
 
         window.app = app;
     </script>
