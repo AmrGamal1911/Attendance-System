@@ -7,6 +7,123 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
+    <style>
+        :root {
+            --primary: #667eea;
+            --success: #10b981;
+            --danger: #ef4444;
+            --border-radius: 12px;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 1rem;
+            background: #f8fafc;
+        }
+        
+        .container {
+            max-width: 500px;
+            width: 100%;
+            text-align: center;
+        }
+        
+        h1 {
+            margin-bottom: 2rem;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            border-radius: var(--border-radius);
+            font-size: 1rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            margin: 0 auto;
+            transition: transform 0.2s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .alert {
+            padding: 1rem;
+            border-radius: var(--border-radius);
+            margin-bottom: 1rem;
+        }
+        
+        .alert-success {
+            background: rgba(16, 185, 129, 0.1);
+            color: #047857;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+        
+        .alert-danger {
+            background: rgba(239, 68, 68, 0.1);
+            color: #b91c1c;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+        
+        .alert-info {
+            background: rgba(59, 130, 246, 0.1);
+            color: #1d4ed8;
+            border: 1px solid rgba(59, 130, 246, 0.2);
+        }
+        
+        .hidden {
+            display: none;
+        }
+
+        .spinner {
+            border: 3px solid rgba(102, 126, 234, 0.2);
+            border-top: 3px solid var(--primary);
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            margin: 1rem auto;
+            display: none;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1><i class="fas fa-map-marker-alt"></i> Set Class Location</h1>
+        
+        <div id="message" class="alert hidden"></div>
+        
+        <div id="spinner" class="spinner"></div>
+        
+        <button id="getLocationBtn" class="btn" onclick="getLocation()">
+            <i class="fas fa-location-arrow"></i> Get Current Location
+        </button>
+    </div>
+
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
         import { getDatabase, ref, set } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
@@ -36,6 +153,9 @@
             }
             
             try {
+                document.getElementById('spinner').style.display = 'block';
+                document.getElementById('getLocationBtn').disabled = true;
+                
                 await set(ref(database, `sessions/${sessionId}/tempLocation/${locationId}`), {
                     latitude: position.coords.latitude,
                     longitude: position.coords.longitude,
@@ -45,118 +165,29 @@
                 
                 showMessage('Location sent successfully! You can close this page.', 'success');
                 document.getElementById('getLocationBtn').style.display = 'none';
+                document.getElementById('spinner').style.display = 'none';
             } catch (error) {
+                console.error('Firebase error:', error);
                 showMessage('Failed to send location: ' + error.message, 'danger');
+                document.getElementById('getLocationBtn').disabled = false;
+                document.getElementById('spinner').style.display = 'none';
             }
         };
-    </script>
-    
-    <style>
-        :root {
-            --primary: #667eea;
-            --success: #10b981;
-            --danger: #ef4444;
-            --dark: #1f2937;
-            --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-        
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            padding: 2rem;
-            background: #f8fafc;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .container {
-            max-width: 500px;
-            width: 100%;
-            background: white;
-            padding: 2rem;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }
-        
-        h1 {
-            text-align: center;
-            color: var(--dark);
-            margin-bottom: 2rem;
-            font-size: 1.5rem;
-        }
-        
-        .btn {
-            background: var(--gradient);
-            color: white;
-            border: none;
-            padding: 1rem;
-            border-radius: 8px;
-            width: 100%;
-            font-size: 1rem;
-            font-weight: 500;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-        }
-        
-        .alert {
-            padding: 1rem;
-            border-radius: 8px;
-            margin: 1rem 0;
-            font-weight: 500;
-        }
-        
-        .alert-success {
-            background: rgba(16, 185, 129, 0.1);
-            color: #047857;
-            border: 1px solid rgba(16, 185, 129, 0.2);
-        }
-        
-        .alert-danger {
-            background: rgba(239, 68, 68, 0.1);
-            color: #b91c1c;
-            border: 1px solid rgba(239, 68, 68, 0.2);
-        }
-        
-        .hidden {
-            display: none;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1><i class="fas fa-map-marker-alt"></i> Set Class Location</h1>
-        
-        <div id="message" class="alert hidden"></div>
-        
-        <button id="getLocationBtn" class="btn" onclick="getLocation()">
-            <i class="fas fa-location-arrow"></i> Get Current Location
-        </button>
-    </div>
 
-    <script>
-        function showMessage(text, type) {
+        window.showMessage = function(text, type) {
             const messageDiv = document.getElementById('message');
             messageDiv.textContent = text;
             messageDiv.className = `alert alert-${type}`;
             messageDiv.classList.remove('hidden');
-        }
+        };
 
-        function getLocation() {
+        window.getLocation = function() {
             if (!navigator.geolocation) {
                 showMessage('Geolocation is not supported by your browser', 'danger');
                 return;
             }
 
+            document.getElementById('spinner').style.display = 'block';
             showMessage('Getting your location...', 'info');
             
             navigator.geolocation.getCurrentPosition(
@@ -164,6 +195,7 @@
                     window.sendLocation(position);
                 },
                 (error) => {
+                    document.getElementById('spinner').style.display = 'none';
                     let message = 'Could not get your location: ';
                     switch(error.code) {
                         case error.PERMISSION_DENIED:
@@ -186,7 +218,7 @@
                     maximumAge: 0
                 }
             );
-        }
+        };
     </script>
 </body>
 </html> 
