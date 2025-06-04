@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Set Class Location | EELU</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
     <style>
         :root {
@@ -124,137 +123,68 @@
         </button>
     </div>
 
-    <script type="module">
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
-        import { getDatabase, ref, set } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
-
-        const firebaseConfig = {
-            apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
-            authDomain: "eelu-attendance.firebaseapp.com",
-            databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
-            projectId: "eelu-attendance",
-            storageBucket: "eelu-attendance.appspot.com",
-            messagingSenderId: "5132239076",
-            appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
-            measurementId: "G-D2WNX8RGRL"
-        };
-
-        const firebaseApp = initializeApp(firebaseConfig);
-        const database = getDatabase(firebaseApp);
-
-        // Make Firebase functions available globally
-        window.database = database;
-        window.dbRef = ref;
-        window.dbSet = set;
-
-        window.sendLocation = async function(position) {
-            const params = new URLSearchParams(window.location.search);
-            const locationId = params.get('id');
-            
-            if (!locationId) {
-                showMessage('Invalid location request', 'danger');
-                return;
-            }
-            
-            try {
-                document.getElementById('spinner').style.display = 'block';
-                document.getElementById('getLocationBtn').disabled = true;
-                
-                // Verify Firebase is initialized
-                if (!window.database || !window.dbRef) {
-                    throw new Error('Firebase not properly initialized');
-                }
-
-                // Only store location data, no listeners needed
-                const locationRef = window.dbRef(window.database, `tempLocations/${locationId}`);
-                await window.dbSet(locationRef, {
-                    latitude: position.coords.latitude,
-                    longitude: position.coords.longitude,
-                    accuracy: position.coords.accuracy,
-                    timestamp: Date.now()
-                });
-                
-                showMessage('Location sent successfully! You can close this page.', 'success');
-                document.getElementById('getLocationBtn').style.display = 'none';
-                document.getElementById('spinner').style.display = 'none';
-                
-                // Auto-close the page after 3 seconds
-                setTimeout(() => {
-                    window.close();
-                }, 3000);
-            } catch (error) {
-                console.error('Firebase error:', error);
-                showMessage('Failed to send location: ' + error.message, 'danger');
-                document.getElementById('getLocationBtn').disabled = false;
-                document.getElementById('spinner').style.display = 'none';
-            }
-        };
-
-        window.showMessage = function(text, type) {
+    <script>
+        function showMessage(type, text) {
             const messageDiv = document.getElementById('message');
-            messageDiv.textContent = text;
             messageDiv.className = `alert alert-${type}`;
+            messageDiv.textContent = text;
             messageDiv.classList.remove('hidden');
-        };
+        }
 
-        window.getLocation = function() {
+        function showSpinner(show) {
+            document.getElementById('spinner').style.display = show ? 'block' : 'none';
+            document.getElementById('getLocationBtn').style.display = show ? 'none' : 'flex';
+        }
+
+        function getLocation() {
             if (!navigator.geolocation) {
-                showMessage('Geolocation is not supported by your browser', 'danger');
+                showMessage('danger', 'Geolocation is not supported by your browser');
                 return;
             }
 
-            document.getElementById('spinner').style.display = 'block';
-            showMessage('Getting your location...', 'info');
-            
-            const options = {
-                enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 0
-            };
+            showSpinner(true);
+            showMessage('info', 'Getting your location...');
 
-            const locationSuccess = (position) => {
-                if (position.coords.accuracy > 100) {
-                    showMessage('Location accuracy is too low. Please try again in a more open area.', 'warning');
-                    document.getElementById('spinner').style.display = 'none';
-                    document.getElementById('getLocationBtn').disabled = false;
-                    return;
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const { latitude: lat, longitude: lng } = position.coords;
+                    
+                    // Send coordinates back to parent window
+                    if (window.opener) {
+                        window.opener.postMessage({ lat, lng }, '*');
+                        showMessage('success', 'Location set successfully! You can close this window.');
+                        showSpinner(false);
+                        document.getElementById('getLocationBtn').style.display = 'none';
+                    } else {
+                        showMessage('danger', 'Error: Could not communicate with main window');
+                        showSpinner(false);
+                    }
+                },
+                (error) => {
+                    let message = 'Error getting location: ';
+                    switch (error.code) {
+                        case error.PERMISSION_DENIED:
+                            message += 'Permission denied';
+                            break;
+                        case error.POSITION_UNAVAILABLE:
+                            message += 'Position unavailable';
+                            break;
+                        case error.TIMEOUT:
+                            message += 'Request timed out';
+                            break;
+                        default:
+                            message += 'Unknown error';
+                    }
+                    showMessage('danger', message);
+                    showSpinner(false);
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 0
                 }
-                window.sendLocation(position);
-            };
-
-            const locationError = (error) => {
-                document.getElementById('spinner').style.display = 'none';
-                let message = 'Could not get your location: ';
-                switch(error.code) {
-                    case error.PERMISSION_DENIED:
-                        message += 'Please enable location access in your browser settings';
-                        break;
-                    case error.POSITION_UNAVAILABLE:
-                        message += 'Location information is unavailable. Please check your device settings';
-                        break;
-                    case error.TIMEOUT:
-                        message += 'Location request timed out. Please try again';
-                        break;
-                    default:
-                        message += error.message;
-                }
-                showMessage(message, 'danger');
-            };
-            
-            navigator.geolocation.getCurrentPosition(locationSuccess, locationError, options);
-        };
-
-        // Initialize location handling when page loads
-        document.addEventListener('DOMContentLoaded', () => {
-            console.log('Location page initialized');
-            const params = new URLSearchParams(window.location.search);
-            const locationId = params.get('id');
-            
-            if (!locationId) {
-                showMessage('Invalid location request. Please scan the QR code again.', 'danger');
-                document.getElementById('getLocationBtn').style.display = 'none';
-            }
-        });
+            );
+        }
     </script>
 </body>
 </html> 
