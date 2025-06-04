@@ -947,6 +947,59 @@
                     });
                 },
 
+                createSession: async function() {
+                    const week = parseInt(document.getElementById('week').value);
+                    const maxAttendees = parseInt(document.getElementById('max_attendees').value);
+                    const taEmail = document.getElementById('ta_email').value;
+                    const password = document.getElementById('password').value;
+                    const useLocation = document.getElementById('useLocation').checked;
+                    const locationDistance = parseInt(document.getElementById('locationDistance').value);
+                    
+                    if (!this.rosterData || !this.subjectName) {
+                        this.showMessage('Please upload a roster first', 'danger');
+                        return;
+                    }
+                    
+                    if (useLocation && !this.selectedLocation) {
+                        this.showMessage('Please set a class location', 'danger');
+                        return;
+                    }
+                    
+                    const sessionData = {
+                        week: week,
+                        subject: this.subjectName,
+                        maxAttendees: maxAttendees,
+                        taEmail: taEmail,
+                        roster: this.rosterData,
+                        active: true,
+                        createdAt: Date.now(),
+                        useLocation: useLocation,
+                        locationDistance: locationDistance,
+                        classLocation: this.selectedLocation
+                    };
+                    
+                    if (password) {
+                        sessionData.password = password;
+                    }
+                    
+                    try {
+                        const sessionRef = await window.dbPush(window.dbRef(window.database, 'sessions'));
+                        await window.dbSet(sessionRef, sessionData);
+                        
+                        const sessionId = sessionRef.key;
+                        this.showMessage('Session created successfully!', 'success');
+                        this.loadSessions();
+                        
+                        document.getElementById('sessionForm').reset();
+                        document.getElementById('locationSettings').style.display = 'none';
+                        this.selectedLocation = null;
+                        document.getElementById('locationPreview').textContent = 'No location set';
+                    } catch (error) {
+                        console.error('Error creating session:', error);
+                        this.showMessage('Failed to create session', 'danger');
+                    }
+                },
+
                 // ... rest of the app methods ...
             };
             app.init();
