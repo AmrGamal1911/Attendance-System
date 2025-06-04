@@ -1085,10 +1085,18 @@
     <!-- Location Picker Modal -->
     <div id="locationModal" class="modal hidden">
         <div class="modal-content">
-            <h2><i class="fas fa-map-marker-alt"></i> Select Class Location</h2>
+            <h2><i class="fas fa-map-marker-alt"></i> Set Class Location</h2>
+            <div class="form-group">
+                <label>Enter Location Manually:</label>
+                <div class="input-group">
+                    <input type="text" id="manualLat" placeholder="Latitude (e.g. 30.0444)" class="form-control">
+                    <input type="text" id="manualLng" placeholder="Longitude (e.g. 31.2357)" class="form-control">
+                </div>
+                <p class="text-muted">Or use the map below to select location</p>
+            </div>
             <div id="map" style="height: 400px; width: 100%; margin: 1rem 0;"></div>
             <div class="form-group">
-                <label><i class="fas fa-search"></i> Search Location:</label>
+                <label>Search Location:</label>
                 <input type="text" id="locationSearch" placeholder="Search for a location" class="full-width">
             </div>
             <div class="flex gap-4">
@@ -1264,23 +1272,33 @@
             },
 
             confirmLocation: function() {
-                if (!this.selectedLocation) {
-                    this.showMessage('Please select a location on the map', 'danger');
+                let lat, lng;
+                
+                // Check if manual coordinates were entered
+                const manualLat = document.getElementById('manualLat').value;
+                const manualLng = document.getElementById('manualLng').value;
+                
+                if (manualLat && manualLng) {
+                    lat = parseFloat(manualLat);
+                    lng = parseFloat(manualLng);
+                } else if (this.selectedLocation) {
+                    lat = this.selectedLocation.lat;
+                    lng = this.selectedLocation.lng;
+                } else {
+                    this.showMessage('Please select a location or enter coordinates', 'danger');
                     return;
                 }
                 
-                this.classLocation = this.selectedLocation;
-                
-                if (this.map) {
-                    const geocoder = new google.maps.Geocoder();
-                    geocoder.geocode({ location: this.selectedLocation }, (results, status) => {
-                        let address = 'Custom location selected';
-                        if (status === 'OK' && results[0]) {
-                            address = results[0].formatted_address;
-                        }
-                        document.getElementById('locationPreview').textContent = address;
-                    });
+                // Validate coordinates
+                if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+                    this.showMessage('Invalid coordinates. Please check your input.', 'danger');
+                    return;
                 }
+                
+                this.classLocation = { lat, lng };
+                
+                // Update preview with coordinates
+                document.getElementById('locationPreview').textContent = `Selected Location: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
                 
                 this.closeLocationModal();
                 this.showMessage('Class location set successfully!', 'success');
@@ -1801,31 +1819,9 @@
                 const attendees = session.attendees || [];
                 const currentWeek = parseInt(session.week);
                 const subjectName = session.subject;
-                const allWeeks = [...(session.existingWeeks || []), currentWeek].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
-                
-                // Get token data
-                const usedTokens = session.usedTokens || {};
-                
-                // Build IP sharing notes
-                const ipMap = {};
-                attendees.forEach(a => {
-                    if (!a.ip || a.ip === session.taIpAddress) return;
-                    if (!ipMap[a.ip]) ipMap[a.ip] = [];
-                    ipMap[a.ip].push(a.id);
-                });
-
-                // Build token sharing notes
-                const tokenLinkNote = {};
-                Object.entries(usedTokens).forEach(([token, data]) => {
-                    // Check for IP sharing with other tokens
-                    const sameIPTokens = Object.entries(usedTokens)
-                        .filter(([t, d]) => t !== token && d.ip === data.ip)
-                        .map(([_, d]) => d.id);
-
-                    if (sameIPTokens.length > 0) {
-                        tokenLinkNote[data.id] = `Same IP with IDs: ${sameIPTokens.join(', ')}`;
-                    }
-                });
+                const allWeeks = [...(session.existingWeeks || []), currentWeek]
+                    .filter((v, i, a) => a.indexOf(v) === i)
+                    .sort((a, b) => a - b);
 
                 let reportData = [];
                 
@@ -1840,9 +1836,7 @@
                         
                         allWeeks.forEach(week => {
                             if (week === currentWeek) {
-                                // Only prevent attendance for students who used someone else's token
-                                const hasTokenFlag = tokenLinkNote[student.id] ? true : false;
-                                newRow[`Week ${week}`] = matched && !hasTokenFlag ? 1 : 0;
+                                newRow[`Week ${week}`] = matched ? 1 : 0;
                                 newRow[`Timestamp Week ${week}`] = matched ? 
                                     new Date(matched.timestamp).toLocaleString() : 'N/A';
                             } else {
@@ -1855,50 +1849,20 @@
                             return sum + (Number(newRow[`Week ${week}`]) || 0);
                         }, 0);
 
-                        // Add IP note if applicable
-                        const ipNote = matched?.ip !== session.taIpAddress && ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
-                            `IP shared with IDs: ${ipMap[matched.ip].filter(id => id !== student.id).join(', ')}` : '';
-                            
-                        // Add token note if applicable
-                        const tokenNote = tokenLinkNote[student.id] || '';
-                        
-                        // Combine notes
-                        newRow['Note'] = [tokenNote, ipNote].filter(Boolean).join(' | ');
-                        
-                        // Add flagged column if token was misused
-                        newRow['Flagged'] = tokenNote ? 'Yes' : '';
-                        
                         return newRow;
                     });
                 } else {
                     reportData = roster.map(student => {
                         const matched = attendees.find(a => a.id === student.id);
-                        // Only prevent attendance for students who used someone else's token
-                        const hasTokenFlag = tokenLinkNote[student.id] ? true : false;
-                        const row = {
+                        return {
                             'Student ID': student.id,
                             'Name': student.name,
                             'Section': student.section || '',
-                            [`Week ${currentWeek}`]: matched && !hasTokenFlag ? 1 : 0,
-                            'Total Attendance': matched && !hasTokenFlag ? 1 : 0,
+                            [`Week ${currentWeek}`]: matched ? 1 : 0,
+                            'Total Attendance': matched ? 1 : 0,
                             [`Timestamp Week ${currentWeek}`]: matched ? 
                                 new Date(matched.timestamp).toLocaleString() : 'N/A'
                         };
-
-                        // Add IP note if applicable
-                        const ipNote = matched?.ip !== session.taIpAddress && ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
-                            `IP shared with IDs: ${ipMap[matched.ip].filter(id => id !== student.id).join(', ')}` : '';
-                            
-                        // Add token note if applicable
-                        const tokenNote = tokenLinkNote[student.id] || '';
-                        
-                        // Combine notes
-                        row['Note'] = [tokenNote, ipNote].filter(Boolean).join(' | ');
-                        
-                        // Add flagged column if token was misused
-                        row['Flagged'] = tokenNote ? 'Yes' : '';
-                        
-                        return row;
                     });
                 }
                 
@@ -1913,10 +1877,6 @@
                 allWeeks.forEach(week => {
                     columnOrder.push(`Timestamp Week ${week}`);
                 });
-
-                // Add Note and Flagged columns
-                columnOrder.push('Note');
-                columnOrder.push('Flagged');
                 
                 const reorderedData = reportData.map(row => {
                     const newRow = {};
@@ -2395,160 +2355,71 @@
 
             createSession: async function() {
                 try {
-                    // Verify Firebase connection
-                    if (!window.database || !window.dbRef || !window.dbSet) {
-                        this.showMessage('Database connection not ready. Please refresh the page.', 'danger');
-                        return;
-                    }
-
-                    const subject = document.getElementById('subject').value.trim();
-                    const week = parseInt(document.getElementById('week').value);
-                    const maxAttendees = parseInt(document.getElementById('maxAttendees').value);
-                    const password = document.getElementById('password').value.trim();
-                    const taEmail = document.getElementById('ta_email').value.trim();
-                    
-                    if (!subject || isNaN(week) || week < 1 || week > 52 || 
-                        isNaN(maxAttendees) || maxAttendees < 1 || maxAttendees > 500 || !taEmail) {
-                        this.showMessage('Please fill all required fields correctly', 'danger');
-                        return;
-                    }
-
-                    // Get TA's IP address for validation
-                    const taIpAddress = await fetch('https://api.ipify.org?format=json')
-                        .then(r => r.json())
-                        .then(data => data.ip)
-                        .catch(() => 'unknown');
-
-                    // Generate session ID with timestamp for uniqueness
-                    const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2)}`;
-                    
-                    // Generate tokens
-                    const sessionTokens = this.generateSessionTokens(maxAttendees);
-
-                    // Create session data
+                    const sessionId = 'session_' + Date.now();
                     const sessionData = {
                         id: sessionId,
-                        subject: subject,
-                        week: week,
-                        maxAttendees: maxAttendees,
-                        password: password || null,
-                        active: true,
+                        subject: app.subjectName,
+                        week: parseInt(document.getElementById('week').value),
+                        maxAttendees: parseInt(document.getElementById('max_attendees').value),
+                        password: document.getElementById('password').value || null,
+                        taEmail: document.getElementById('ta_email').value,
                         createdAt: window.dbServerTimestamp(),
-                        availableTokens: sessionTokens,
-                        usedTokens: {},
-                        attendees: {},
-                        taEmail: taEmail
+                        active: true,
+                        attendeeCount: 0,
+                        useLocation: document.getElementById('useLocation').checked,
+                        locationDistance: parseInt(document.getElementById('locationDistance').value) || 50,
+                        deviceId: app.deviceId,
+                        existingWeeks: [...app.existingWeeks],
+                        maxExistingWeek: app.maxExistingWeek
                     };
 
-                    // Get a new session reference with timeout
+                    if (sessionData.useLocation && app.classLocation) {
+                        sessionData.classLocation = app.classLocation;
+                    }
+
                     try {
-                        const newSessionRef = window.dbPush(this.sessionsRef);
-                        const sessionId = newSessionRef.key;
-
-                        // Save session data with timeout
-                        await Promise.race([
-                            window.dbSet(newSessionRef, sessionData),
-                            new Promise((_, reject) => 
-                                setTimeout(() => reject(new Error('Connection timeout')), 10000)
-                            )
-                        ]);
-
-                        // Generate QR code and link
-                        const sessionUrl = `${window.location.origin}/form.html?session=${sessionId}`;
-                        const qr = new QRCode(document.getElementById("qrcode"), {
-                            text: sessionUrl,
-                            width: 256,
-                            height: 256,
-                            colorDark: "#000000",
-                            colorLight: "#ffffff",
-                            correctLevel: QRCode.CorrectLevel.H
+                        const sessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
+                        await window.dbSet(sessionRef, sessionData);
+                        app.saveSessionToLocal(sessionData);
+                        
+                        const attendeesRef = window.dbRef(window.database, `sessions/${sessionId}/attendees`);
+                        
+                        const sessionInfo = {
+                            ...sessionData,
+                            sessionRef,
+                            attendeesRef,
+                            syncStatus: 'connecting'
+                        };
+                        
+                        app.currentSessions.push(sessionInfo);
+                        app.displaySession(sessionInfo);
+                        
+                        window.dbOnValue(attendeesRef, (snapshot) => {
+                            const attendees = snapshot.val() || {};
+                            const attendeeList = Object.values(attendees);
+                            sessionInfo.attendees = attendeeList;
+                            sessionInfo.attendeeCount = attendeeList.length;
+                            
+                            app.updateSessionDisplay(sessionInfo);
+                            
+                            if (attendeeList.length >= sessionData.maxAttendees && sessionInfo.active) {
+                                app.endSession(sessionInfo.id);
+                            }
+                            
+                            app.saveSessionToLocal(sessionInfo);
                         });
-
-                        // Show session info
-                        document.getElementById('sessionLink').value = sessionUrl;
-                        document.getElementById('sessionId').textContent = sessionId;
-                        document.getElementById('createSection').classList.add('hidden');
-                        document.getElementById('activeSection').classList.remove('hidden');
-
-                        // Set up session listeners
-                        this.setupSessionListeners(sessionId);
-                        this.showMessage('Session created successfully!', 'success');
-
+                        
+                        app.showMessage('Attendance session started successfully!', 'success');
+                        app.addToSessionHistory(sessionInfo);
+                        document.getElementById('sessionHistoryCard').classList.remove('hidden');
+                        
                     } catch (error) {
-                        console.error('Error saving session:', error);
-                        this.showMessage('Failed to create session. Please check your connection and try again.', 'danger');
+                        console.error('Error creating session:', error);
+                        app.showMessage('Failed to create session. Please try again.', 'danger');
                     }
-
                 } catch (error) {
-                    console.error('Error creating session:', error);
-                    this.showMessage('Failed to create session. Please try again.', 'danger');
-                }
-            },
-
-            generateToken: function() {
-                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-                let token = '';
-                for (let i = 0; i < 6; i++) {
-                    token += chars.charAt(Math.floor(Math.random() * chars.length));
-                }
-                return token;
-            },
-
-            setupSessionListeners: function(sessionId) {
-                try {
-                    // Remove any existing listeners
-                    if (this.currentSessionRef) {
-                        window.dbOff(this.currentSessionRef);
-                    }
-                    if (this.currentAttendeesRef) {
-                        window.dbOff(this.currentAttendeesRef);
-                    }
-
-                    // Set up new listeners
-                    this.currentSessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
-                    this.currentAttendeesRef = window.dbRef(window.database, `sessions/${sessionId}/attendees`);
-
-                    // Listen for session changes with error handling
-                    window.dbOnValue(this.currentSessionRef, (snapshot) => {
-                        const data = snapshot.val();
-                        if (!data) return;
-
-                        // Update session info
-                        document.getElementById('displaySubject').textContent = data.subject;
-                        document.getElementById('displayWeek').textContent = data.week;
-                        document.getElementById('displayMaxAttendees').textContent = data.maxAttendees;
-                        
-                        const availableCount = data.availableTokens ? data.availableTokens.length : 0;
-                        document.getElementById('availableSlots').textContent = availableCount;
-                        
-                        const usedCount = data.usedTokens ? Object.keys(data.usedTokens).length : 0;
-                        document.getElementById('usedSlots').textContent = usedCount;
-
-                        // Update session status
-                        if (!data.active) {
-                            document.getElementById('sessionStatus').textContent = 'Closed';
-                            document.getElementById('sessionStatus').className = 'status-closed';
-                        } else {
-                            document.getElementById('sessionStatus').textContent = 'Active';
-                            document.getElementById('sessionStatus').className = 'status-active';
-                        }
-                    }, (error) => {
-                        console.error('Session listener error:', error);
-                        this.showMessage('Connection error. Please refresh the page.', 'danger');
-                    });
-
-                    // Listen for attendee changes with error handling
-                    window.dbOnValue(this.currentAttendeesRef, (snapshot) => {
-                        const attendees = snapshot.val() || {};
-                        this.updateAttendeeTable(attendees);
-                    }, (error) => {
-                        console.error('Attendees listener error:', error);
-                        this.showMessage('Error updating attendee list. Please refresh the page.', 'danger');
-                    });
-
-                } catch (error) {
-                    console.error('Error setting up listeners:', error);
-                    this.showMessage('Failed to set up session monitoring. Please refresh the page.', 'danger');
+                    console.error('Error:', error);
+                    app.showMessage('Failed to create session. Please try again.', 'danger');
                 }
             },
 
