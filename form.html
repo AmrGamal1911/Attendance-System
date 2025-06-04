@@ -394,24 +394,12 @@
 
             init: function() {
                 this.currentSessionId = new URLSearchParams(window.location.search).get('session');
+                this.currentToken = new URLSearchParams(window.location.search).get('token');
                 
-                if (!this.currentSessionId) {
+                if (!this.currentSessionId || !this.currentToken) {
+                    this.showMessage('Invalid session or token', 'danger');
                     this.showNoSession();
                     return;
-                }
-
-                // Check if there's an existing token for this session
-                const existingToken = localStorage.getItem(`formToken_${this.currentSessionId}`);
-                const existingLoadTime = localStorage.getItem(`formLoadTime_${this.currentSessionId}`);
-
-                if (existingToken && existingLoadTime) {
-                    // Use existing token if it exists
-                    this.currentToken = existingToken;
-                    this.initialLoadTime = parseInt(existingLoadTime);
-                    document.getElementById('deviceToken').value = existingToken;
-                } else {
-                    // Generate new token if none exists
-                    this.generateAndSetDeviceToken();
                 }
                 
                 this.initializeSession();
@@ -420,52 +408,6 @@
                     e.preventDefault();
                     this.submitAttendance();
                 });
-            },
-
-            generateAndSetDeviceToken: function() {
-                // Generate device fingerprint data
-                const deviceData = {
-                    userAgent: navigator.userAgent,
-                    language: navigator.language,
-                    platform: navigator.platform,
-                    screenResolution: `${window.screen.width}x${window.screen.height}`,
-                    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                    colorDepth: window.screen.colorDepth,
-                    pixelRatio: window.devicePixelRatio,
-                    hardwareConcurrency: navigator.hardwareConcurrency,
-                    deviceMemory: navigator.deviceMemory,
-                    initialLoadTime: Date.now() // Add initial form load timestamp
-                };
-
-                // Create a hash from the device data
-                const deviceHash = this.hashCode(JSON.stringify(deviceData));
-                
-                // Generate a unique session component
-                const sessionComponent = Math.random().toString(36).substring(2, 15);
-                
-                // Combine device hash and session component with load timestamp
-                const deviceToken = `${deviceHash}_${sessionComponent}_${deviceData.initialLoadTime}`;
-                
-                // Set the token in the hidden field
-                document.getElementById('deviceToken').value = deviceToken;
-                
-                // Store token and initial load time in the instance
-                this.currentToken = deviceToken;
-                this.initialLoadTime = deviceData.initialLoadTime;
-
-                // Store the token generation time in localStorage to prevent token regeneration on page refresh
-                localStorage.setItem(`formToken_${this.currentSessionId}`, deviceToken);
-                localStorage.setItem(`formLoadTime_${this.currentSessionId}`, deviceData.initialLoadTime);
-            },
-
-            hashCode: function(str) {
-                let hash = 0;
-                for (let i = 0; i < str.length; i++) {
-                    const char = str.charCodeAt(i);
-                    hash = ((hash << 5) - hash) + char;
-                    hash = hash & hash; // Convert to 32-bit integer
-                }
-                return Math.abs(hash).toString(36);
             },
 
             initializeSession: function() {
@@ -571,22 +513,14 @@
             async submitAttendance() {
                 const studentId = document.getElementById('student_id').value.trim().toUpperCase();
                 const password = document.getElementById('password')?.value;
-                const deviceToken = document.getElementById('deviceToken').value;
                 
                 if (!studentId) {
                     this.showMessage('Please enter your student ID', 'danger');
                     return;
                 }
 
-                if (!deviceToken) {
-                    this.showMessage('Invalid device token. Please refresh the page.', 'danger');
-                    return;
-                }
-
-                // Check if this is a delayed submission (more than 30 minutes after form load)
-                const submissionDelay = Date.now() - this.initialLoadTime;
-                if (submissionDelay > 30 * 60 * 1000) { // 30 minutes in milliseconds
-                    this.showMessage('Form submission timeout. Please refresh the page and try again.', 'danger');
+                if (!this.currentToken) {
+                    this.showMessage('Invalid token. Please scan the QR code again.', 'danger');
                     return;
                 }
 
@@ -594,147 +528,84 @@
                     this.showMessage('Invalid password', 'danger');
                     return;
                 }
-                
-                // Location verification with retry logic
-                if (this.sessionData.useLocation && this.sessionData.classLocation) {
-                    this.locationAttempts = 0;
-                    let locationVerified = false;
-                    
-                    while (this.locationAttempts < this.maxLocationAttempts && !locationVerified) {
-                        try {
-                            const studentLocation = await this.getFreshLocation();
-                            if (!studentLocation) {
-                                throw new Error('Could not get location');
-                            }
-                            
-                            // Check location accuracy
-                            if (studentLocation.accuracy > 50) {
-                                throw new Error('Location accuracy too low');
-                            }
-                            
-                            const distance = this.calculateDistance(
-                                studentLocation, 
-                                this.sessionData.classLocation
-                            );
-                            
-                            const accuracyBuffer = studentLocation.accuracy + 10; // Add 10m buffer
-                            const maxAllowedDistance = this.sessionData.locationDistance + accuracyBuffer;
-                            
-                            if (distance > maxAllowedDistance) {
-                                this.showMessage(`You must be within ${this.sessionData.locationDistance}m of the class (approximately ${Math.round(distance)}m away)`, 'danger');
-                                return;
-                            }
-                            
-                            locationVerified = true;
-                        } catch (error) {
-                            this.locationAttempts++;
-                            console.error('Location attempt failed:', error);
-                            
-                            if (this.locationAttempts >= this.maxLocationAttempts) {
-                                this.showMessage('Location verification failed after multiple attempts', 'danger');
-                                return;
-                            }
-                            
-                            // Wait briefly before retrying
-                            await new Promise(resolve => setTimeout(resolve, 1000));
-                        }
-                    }
-                    
-                    if (!locationVerified) {
-                        this.showMessage('Location verification failed', 'danger');
-                        return;
-                    }
+
+                // Get current device fingerprint
+                const deviceData = {
+                    userAgent: navigator.userAgent,
+                    language: navigator.language,
+                    platform: navigator.platform,
+                    screenResolution: `${window.screen.width}x${window.screen.height}`,
+                    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    colorDepth: window.screen.colorDepth,
+                    pixelRatio: window.devicePixelRatio,
+                    hardwareConcurrency: navigator.hardwareConcurrency,
+                    deviceMemory: navigator.deviceMemory
+                };
+                const deviceHash = this.hashCode(JSON.stringify(deviceData));
+
+                // Check if token is still available
+                const sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
+                const sessionSnap = await window.dbGet(sessionRef);
+                const sessionData = sessionSnap.val();
+
+                if (!sessionData.availableTokens.includes(this.currentToken)) {
+                    this.showMessage('This token has already been used. Please scan the QR code again.', 'danger');
+                    return;
                 }
-                
-                // Token verification
-                const tokenPath = `sessions/${this.currentSessionId}/tokens/${deviceToken}`;
-                const tokenSnap = await window.dbGet(window.dbRef(window.database, tokenPath));
-                const tokenData = tokenSnap.val();
+
                 const currentIP = await fetch('https://api.ipify.org?format=json').then(r => r.json()).then(data => data.ip).catch(() => 'unknown');
 
-                let isTokenMisused = false;
-                let isSecondUser = false;
-
-                if (!tokenData) {
-                    // First time using this token - initialize it
-                    await window.dbSet(window.dbRef(window.database, tokenPath), {
+                try {
+                    // Remove token from available tokens and add to used tokens
+                    const updatedAvailableTokens = sessionData.availableTokens.filter(t => t !== this.currentToken);
+                    const usedTokenData = {
                         id: studentId,
                         ip: currentIP,
                         timestamp: Date.now(),
-                        deviceToken: deviceToken,
-                        deviceHash: deviceToken.split('_')[0],
-                        formLoadTime: this.initialLoadTime,
-                        submissionDelay: submissionDelay,
-                        used: true,
-                        flagged: false
-                    });
-                } else {
-                    // Check if token was already used by a different student
-                    if (tokenData.id !== studentId) {
-                        isTokenMisused = true;
-                        isSecondUser = true;
-                        // Flag token and prevent attendance for second student only
-                        await window.dbSet(window.dbRef(window.database, tokenPath + "/flagged"), true);
-                        await window.dbSet(window.dbRef(window.database, tokenPath + "/secondStudentId"), studentId);
-                        await window.dbSet(window.dbRef(window.database, tokenPath + "/secondStudentTimestamp"), Date.now());
-                        await window.dbSet(window.dbRef(window.database, tokenPath + "/secondDeviceToken"), deviceToken);
-                        await window.dbSet(window.dbRef(window.database, tokenPath + "/secondDeviceHash"), deviceToken.split('_')[0]);
-                        await window.dbSet(window.dbRef(window.database, tokenPath + "/secondFormLoadTime"), this.initialLoadTime);
-                        await window.dbSet(window.dbRef(window.database, tokenPath + "/secondSubmissionDelay"), submissionDelay);
+                        deviceHash: deviceHash,
+                        deviceData: deviceData,
+                        used: true
+                    };
 
-                        this.showMessage("⚠️ Token already used by another student. Attendance not counted.", "danger");
-                        return; // DO NOT submit attendance for second student
+                    // Update session data atomically
+                    const updates = {
+                        [`sessions/${this.currentSessionId}/availableTokens`]: updatedAvailableTokens,
+                        [`sessions/${this.currentSessionId}/usedTokens/${this.currentToken}`]: usedTokenData
+                    };
+
+                    await window.dbSet(window.dbRef(window.database), updates);
+
+                    const attendeeSnap = await window.dbGet(this.attendeesRef);
+                    const attendees = attendeeSnap.val() || {};
+                    const attendeeList = Object.values(attendees);
+                    
+                    if (attendeeList.length >= this.sessionData.maxAttendees) {
+                        this.showMessage('This session is full', 'danger');
+                        return;
                     }
-                }
-                
-                const attendeeSnap = await window.dbGet(this.attendeesRef);
-                const attendees = attendeeSnap.val() || {};
-                const attendeeList = Object.values(attendees);
-                
-                if (attendeeList.length >= this.sessionData.maxAttendees) {
-                    this.showMessage('This session is full', 'danger');
-                    return;
-                }
-                
-                const student = this.sessionData.roster ? 
-                    this.sessionData.roster.find(s => s.id.toUpperCase() === studentId) : null;
-                
-                if (!student) {
-                    this.showMessage('Student ID not found in roster', 'danger');
-                    return;
-                }
-                
-                if (attendeeList.some(a => a.id.toUpperCase() === studentId)) {
-                    this.showMessage('Attendance already recorded for this student', 'danger');
-                    return;
-                }
-                
-                const submitBtn = document.getElementById('submitBtn');
-                submitBtn.disabled = true;
-                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
-                
-                try {
-                    // Get student's IP address for detection only (not prevention)
-                    const ipAddress = await fetch('https://api.ipify.org?format=json')
-                        .then(res => res.json())
-                        .then(data => data.ip)
-                        .catch(() => 'unknown');
-
-                    // Check for IP sharing (for detection only)
-                    const ipSharedWith = attendeeList.filter(a => 
-                        a.ip === ipAddress && 
-                        a.id !== studentId && 
-                        ipAddress !== this.sessionData.taIpAddress
-                    );
+                    
+                    const student = this.sessionData.roster ? 
+                        this.sessionData.roster.find(s => s.id.toUpperCase() === studentId) : null;
+                    
+                    if (!student) {
+                        this.showMessage('Student ID not found in roster', 'danger');
+                        return;
+                    }
+                    
+                    if (attendeeList.some(a => a.id.toUpperCase() === studentId)) {
+                        this.showMessage('Attendance already recorded for this student', 'danger');
+                        return;
+                    }
 
                     const newAttendee = {
                         id: student.id,
                         name: student.name,
                         section: student.section || '',
                         timestamp: Date.now(),
-                        ip: ipAddress,
-                        token: deviceToken,
-                        isFromTaIp: ipAddress === this.sessionData.taIpAddress
+                        ip: currentIP,
+                        token: this.currentToken,
+                        deviceHash: deviceHash,
+                        isFromTaIp: currentIP === this.sessionData.taIpAddress
                     };
                     
                     await window.dbPush(this.attendeesRef, newAttendee);
@@ -743,16 +614,17 @@
                     document.getElementById('student_id').value = '';
                     if (password) document.getElementById('password').value = '';
                     
-                    setTimeout(() => {
-                        this.showMessage('', 'success');
-                    }, 3000);
+                    // Disable form after successful submission
+                    document.getElementById('attendanceForm').innerHTML = `
+                        <div class="alert alert-success">
+                            <i class="fas fa-check-circle"></i>
+                            Attendance recorded successfully!
+                        </div>
+                    `;
                     
                 } catch (error) {
                     console.error('Error submitting attendance:', error);
                     this.showMessage('Failed to submit attendance. Please try again.', 'danger');
-                } finally {
-                    submitBtn.disabled = false;
-                    submitBtn.innerHTML = '<i class="fas fa-check-circle"></i> Submit Attendance';
                 }
             },
 
@@ -843,6 +715,16 @@
                 const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
                 
                 return R * c;
+            },
+
+            hashCode: function(str) {
+                let hash = 0;
+                for (let i = 0; i < str.length; i++) {
+                    const char = str.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash = hash & hash; // Convert to 32-bit integer
+                }
+                return Math.abs(hash).toString(36);
             }
         };
 
