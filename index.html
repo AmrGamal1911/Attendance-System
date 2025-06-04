@@ -1503,7 +1503,7 @@
                 const sessionId = sessionData.id;
                 
                 // Create basic session URL without token
-                const sessionFormUrl = `${window.location.origin}/form.html?session=${sessionId}`;
+                const baseUrl = `${window.location.origin}/form.html?session=${sessionId}`;
                 
                 const sessionCard = document.createElement('div');
                 sessionCard.className = 'card session-card';
@@ -1552,7 +1552,7 @@
                     <div class="form-group session-url">
                         <label><strong><i class="fas fa-link"></i> Student Access Link:</strong></label>
                         <div class="input-group">
-                            <input type="text" id="sessionUrl_${sessionId}" value="${sessionFormUrl}" readonly>
+                            <input type="text" id="sessionUrl_${sessionId}" value="${baseUrl}" readonly>
                             <button type="button" class="btn btn-secondary copy-btn" onclick="app.copyToClipboard('${sessionId}')">
                                 <i class="fas fa-copy"></i>
                             </button>
@@ -1582,14 +1582,14 @@
                 
                 sessionsContainer.appendChild(sessionCard);
                 
-                // Generate QR code with basic URL
+                // Generate QR code with base URL (without token)
                 const qr = qrcode(0, 'L');
-                qr.addData(sessionFormUrl);
+                qr.addData(baseUrl);
                 qr.make();
                 document.getElementById(`qrcode_${sessionId}`).innerHTML = qr.createImgTag(5);
                 
                 // Set the URL input field
-                document.getElementById(`sessionUrl_${sessionId}`).value = sessionFormUrl;
+                document.getElementById(`sessionUrl_${sessionId}`).value = baseUrl;
             },
 
             updateSessionDisplay: function(sessionData) {
@@ -2232,7 +2232,7 @@
                     // Generate a more secure token with timestamp and random components
                     const timestamp = Date.now();
                     const random = Math.random().toString(36).substring(2);
-                    const token = `token_${timestamp}_${random}_${i}`;
+                    const token = `${timestamp}_${random}_${i}`;
                     tokens.push(token);
                 }
                 return tokens;
