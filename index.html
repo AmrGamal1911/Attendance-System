@@ -1541,12 +1541,15 @@
                 
                 sessionsContainer.appendChild(sessionCard);
                 
-                const formUrl = `${window.location.origin}/form.html?session=${sessionId}`;
+                // Generate QR code
+                const formUrl = new URL('form.html', window.location.origin);
+                formUrl.searchParams.set('session', sessionId);
                 const qr = qrcode(0, 'L');
-                qr.addData(formUrl);
+                qr.addData(formUrl.toString());
                 qr.make();
+                
                 document.getElementById(`qrcode_${sessionId}`).innerHTML = qr.createImgTag(5);
-                document.getElementById(`sessionUrl_${sessionId}`).value = formUrl;
+                document.getElementById(`sessionUrl_${sessionId}`).value = formUrl.toString();
             },
 
             showStudentQRCodes: function(sessionId) {
@@ -2327,12 +2330,12 @@
                 }
                 
                 const locationId = 'loc_' + Date.now();
-                const baseUrl = window.location.origin;
-                const locationUrl = `${baseUrl}/location.html?id=${locationId}`;
+                const locationUrl = new URL('location.html', window.location.origin);
+                locationUrl.searchParams.set('id', locationId);
                 
                 // Generate QR code
                 const qr = qrcode(0, 'L');
-                qr.addData(locationUrl);
+                qr.addData(locationUrl.toString());
                 qr.make();
                 
                 document.getElementById('locationQRCode').innerHTML = qr.createImgTag(8);
