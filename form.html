@@ -11,23 +11,21 @@
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
         import { getDatabase, ref, onValue, push, off, set, get } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
 
-        // Initialize Firebase with your config
-        const firebaseConfig = {
-            apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
-            authDomain: "eelu-attendance.firebaseapp.com",
-            databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
-            projectId: "eelu-attendance",
-            storageBucket: "eelu-attendance.appspot.com",
-            messagingSenderId: "5132239076",
-            appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
-            measurementId: "G-D2WNX8RGRL"
-        };
+            const firebaseConfig = {
+                apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
+                authDomain: "eelu-attendance.firebaseapp.com",
+                databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
+                projectId: "eelu-attendance",
+                storageBucket: "eelu-attendance.appspot.com",
+                messagingSenderId: "5132239076",
+                appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
+                measurementId: "G-D2WNX8RGRL"
+            };
 
-        try {
-            const firebaseApp = initializeApp(firebaseConfig);
-            const database = getDatabase(firebaseApp);
+        const firebaseApp = initializeApp(firebaseConfig);
+        const database = getDatabase(firebaseApp);
 
-            // Make Firebase functions available globally
+        // Make Firebase functions available globally
             window.database = database;
             window.dbRef = ref;
             window.dbSet = set;
@@ -35,9 +33,6 @@
             window.dbPush = push;
             window.dbOff = off;
             window.dbGet = get;
-        } catch (error) {
-            console.error('Firebase initialization error:', error);
-        }
     </script>
     
     <style>
@@ -404,13 +399,13 @@
                     this.currentSessionId = new URLSearchParams(window.location.search).get('session');
                     this.deviceId = localStorage.getItem('deviceId') || crypto.randomUUID();
                     localStorage.setItem('deviceId', this.deviceId);
-                    
-                    if (!this.currentSessionId) {
+                
+                if (!this.currentSessionId) {
                         console.error('No session ID provided');
                         this.showMessage('Invalid session link. Please use the link provided by your instructor.', 'danger');
-                        this.showNoSession();
-                        return;
-                    }
+                    this.showNoSession();
+                    return;
+                }
 
                     // Get current IP
                     try {
@@ -485,9 +480,9 @@
                     console.log('Initial session data:', sessionData ? 'received' : 'empty');
                     console.log('Session active status:', sessionData.active);
                     
-                    // Check if this is TA's device - only in production and if IP blocking is enabled
-                    if (sessionData.blockSameIP && !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
-                        if (sessionData.taIP === this.currentIP) {
+                    // Check if this is TA's device - only in production
+                    if (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
+                        if (sessionData.taIP === this.currentIP && sessionData.blockSameIP) {
                             console.log('TA device detected, blocking submission');
                             this.showMessage("⚠️ TA device cannot submit attendance.", "danger");
                             document.getElementById('submitBtn').disabled = true;
@@ -524,10 +519,10 @@
                         
                         if (!this.sessionData.active) {
                             console.log('Session became inactive, showing closed state');
-                            this.showClosedSession();
-                            return;
-                        }
-
+                        this.showClosedSession();
+                        return;
+                    }
+                    
                         console.log('Session is still active, updating UI');
                         this.showActiveSession();
                         this.updateConnectionStatus('connected');
@@ -542,15 +537,15 @@
                     });
                     
                     // Set up attendees listener
-                    window.dbOnValue(this.attendeesRef, (snapshot) => {
-                        const attendees = snapshot.val() || {};
-                        const attendeeList = Object.values(attendees);
+                window.dbOnValue(this.attendeesRef, (snapshot) => {
+                    const attendees = snapshot.val() || {};
+                    const attendeeList = Object.values(attendees);
                         console.log('Received attendees update:', attendeeList.length, 'attendees');
-                        
-                        if (this.sessionData) {
-                            this.sessionData.attendees = attendeeList;
-                            this.updateAttendanceCount();
-                        }
+                    
+                    if (this.sessionData) {
+                        this.sessionData.attendees = attendeeList;
+                        this.updateAttendanceCount();
+                    }
                     }, (error) => {
                         console.error('Attendees listener error:', error);
                     });
@@ -646,18 +641,6 @@
                         return;
                     }
 
-                    // Check for same IP if blocking is enabled
-                    const attendees = Object.values(this.sessionData.attendees || {});
-                    const sameIPAttendees = attendees.filter(a => a.ip === this.currentIP);
-                    
-                    if (sameIPAttendees.length > 0) {
-                        const sameIPIds = sameIPAttendees.map(a => a.id).join(', ');
-                        if (this.sessionData.blockSameIP) {
-                            this.showMessage(`Another student (${sameIPIds}) has already submitted from this IP address`, 'danger');
-                            return;
-                        }
-                    }
-
                     // Handle location check
                     if (this.sessionData.useLocation) {
                         const locationResult = await this.verifyLocation();
@@ -667,6 +650,13 @@
                         }
                     }
 
+                    // Check for same IP if enabled
+                    const sameIPStudents = [];
+                    if (this.sessionData.blockSameIP) {
+                        const attendees = Object.values(this.sessionData.attendees || {});
+                        sameIPStudents.push(...attendees.filter(a => a.ip === this.currentIP).map(a => a.id));
+                    }
+
                     // Record attendance
                     const attendanceData = {
                         id: student.id,
@@ -674,12 +664,9 @@
                         section: student.section,
                         timestamp: Date.now(),
                         deviceId: this.deviceId,
-                        ip: this.currentIP
+                        ip: this.currentIP,
+                        sameIPWith: sameIPStudents.length > 0 ? sameIPStudents : undefined
                     };
-
-                    if (sameIPAttendees.length > 0) {
-                        attendanceData.sameIPWith = sameIPAttendees.map(a => a.id);
-                    }
 
                     if (this.lastLocation) {
                         attendanceData.location = this.lastLocation;
@@ -710,7 +697,7 @@
                         });
                         return;
                     }
-
+                    
                     const handleLocationError = (error) => {
                         console.error('Location error:', error);
                         let message = 'Could not get your location. ';
