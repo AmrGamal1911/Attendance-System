@@ -381,427 +381,247 @@
     </div>
 
     <script>
-        const formApp = {
-            currentSessionId: null,
-            sessionData: null,
-            sessionRef: null,
-            attendeesRef: null,
-            lastLocation: null,
-            locationAttempts: 0,
-            maxLocationAttempts: 3,
-            currentToken: null,
-            deviceId: null,
-            currentIP: null,
+        class AttendanceForm {
+            constructor() {
+                this.db = window.database;
+                this.sessionData = null;
+                this.setupEventListeners();
+                this.checkSession();
+                this.connectionStatus = 'connecting';
+                this.updateConnectionUI();
+            }
 
-            init: async function() {
-                try {
-                    console.log('Starting form initialization...');
-                    this.currentSessionId = new URLSearchParams(window.location.search).get('session');
-                    this.deviceId = localStorage.getItem('deviceId') || crypto.randomUUID();
-                    localStorage.setItem('deviceId', this.deviceId);
+            setupEventListeners() {
+                const form = document.getElementById('attendanceForm');
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.submitAttendance();
+                });
+
+                // Handle page visibility changes
+                document.addEventListener('visibilitychange', () => {
+                    if (document.visibilityState === 'visible') {
+                        this.checkSession();
+                    }
+                });
+            }
+
+            updateConnectionUI() {
+                const indicator = document.getElementById('connectionIndicator');
+                const status = document.getElementById('connectionStatus');
                 
-                if (!this.currentSessionId) {
-                        console.error('No session ID provided');
-                        this.showMessage('Invalid session link. Please use the link provided by your instructor.', 'danger');
-                    this.showNoSession();
-                    return;
-                }
+                indicator.className = 'status-indicator ' + this.connectionStatus;
+                status.textContent = this.connectionStatus === 'connected' ? 'Connected' : 'Connecting...';
+            }
 
-                    // Get current IP
-                    try {
-                        const ipResponse = await fetch('https://api.ipify.org?format=json');
-                        if (!ipResponse.ok) throw new Error('IP fetch failed');
-                        const ipData = await ipResponse.json();
-                        this.currentIP = ipData.ip;
-                    } catch (error) {
-                        console.error('IP fetch error:', error);
-                        this.currentIP = 'unknown';
-                    }
-
-                    console.log('Initializing session:', this.currentSessionId);
-                    
-                    // Verify Firebase is initialized
-                    if (!window.database || !window.dbRef) {
-                        throw new Error('Firebase not properly initialized');
-                    }
-                    
-                    await this.initializeSession();
-                    
-                    // Clean up listeners when page is closed or navigated away
-                    window.addEventListener('beforeunload', () => {
-                        this.cleanup();
-                    });
-                    
-                    document.getElementById('attendanceForm').addEventListener('submit', (e) => {
-                        e.preventDefault();
-                        this.submitAttendance();
-                    });
-                } catch (error) {
-                    console.error('Initialization error:', error);
-                    this.showMessage('Failed to initialize form: ' + error.message, 'danger');
-                    this.showNoSession();
-                }
-            },
-
-            cleanup: function() {
-                console.log('Cleaning up form resources...');
-                if (this.sessionRef) {
-                    window.dbOff(this.sessionRef);
-                    this.sessionRef = null;
-                }
-                if (this.attendeesRef) {
-                    window.dbOff(this.attendeesRef);
-                    this.attendeesRef = null;
-                }
-            },
-
-            initializeSession: async function() {
-                console.log('Setting up session connection...');
-                this.updateConnectionStatus('connecting');
-                
+            async checkSession() {
                 try {
-                    // Clean up any existing listeners
-                    this.cleanup();
-                    
-                    // Set up session reference
-                    this.sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
-                    
-                    // Get the session data
-                    const sessionSnapshot = await window.dbGet(this.sessionRef);
-                    console.log('Session snapshot received:', sessionSnapshot.exists() ? 'yes' : 'no');
-                    
-                    if (!sessionSnapshot.exists()) {
-                        console.error('Session does not exist');
-                        this.showNoSession();
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const sessionId = urlParams.get('session');
+
+                    if (!sessionId) {
+                        this.showSection('noSession');
                         return;
                     }
 
-                    const sessionData = sessionSnapshot.val();
-                    console.log('Initial session data:', sessionData ? 'received' : 'empty');
-                    console.log('Session active status:', sessionData.active);
-                    
-                    // Check if this is TA's device
-                    if (sessionData.taIP === this.currentIP) {
-                        console.log('TA device detected, blocking submission');
-                        this.showMessage("⚠️ TA device cannot submit attendance.", "danger");
-                        document.getElementById('submitBtn').disabled = true;
-                        return;
-                    }
-
-                        this.sessionData = sessionData;
-                    this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
-
-                    // Show initial session state first
-                    if (!this.sessionData.active) {
-                        console.log('Session is not active, showing closed state');
-                        this.showClosedSession();
-                        return;
-                    } else {
-                        console.log('Session is active, showing active state');
-                        this.showActiveSession();
-                        this.updateConnectionStatus('connected');
-                    }
-
-                    // Set up real-time listener
-                    window.dbOnValue(this.sessionRef, (snapshot) => {
+                    const sessionRef = ref(this.db, `sessions/${sessionId}`);
+                    onValue(sessionRef, (snapshot) => {
                         const data = snapshot.val();
-                        console.log('Real-time session update received:', data ? 'yes' : 'no');
-                        
                         if (!data) {
-                            console.log('No session data in update, showing no session');
-                            this.showNoSession();
+                            this.showSection('noSession');
                             return;
                         }
 
-                        this.sessionData = data;
-                        
-                        if (!this.sessionData.active) {
-                            console.log('Session became inactive, showing closed state');
-                        this.showClosedSession();
-                        return;
-                    }
-                    
-                        console.log('Session is still active, updating UI');
-                        this.showActiveSession();
-                        this.updateConnectionStatus('connected');
-                        
-                        if (this.sessionData.password) {
-                            document.getElementById('passwordField').classList.remove('hidden');
+                        this.sessionData = { id: sessionId, ...data };
+                        this.connectionStatus = 'connected';
+                        this.updateConnectionUI();
+                        this.updateSessionInfo();
+
+                        if (data.status === 'ended') {
+                            this.showSection('closedSession');
+                        } else {
+                            this.showSection('activeSession');
                         }
                     }, (error) => {
-                        console.error('Session listener error:', error);
-                        this.showMessage('Connection error: ' + error.message, 'danger');
-                        this.updateConnectionStatus('error');
+                        console.error('Error fetching session:', error);
+                        this.showSection('noSession');
                     });
-                    
-                    // Set up attendees listener
-                window.dbOnValue(this.attendeesRef, (snapshot) => {
-                    const attendees = snapshot.val() || {};
-                    const attendeeList = Object.values(attendees);
-                        console.log('Received attendees update:', attendeeList.length, 'attendees');
-                    
-                    if (this.sessionData) {
-                        this.sessionData.attendees = attendeeList;
-                        this.updateAttendanceCount();
-                    }
-                    }, (error) => {
-                        console.error('Attendees listener error:', error);
-                    });
-
                 } catch (error) {
-                    console.error('Session initialization error:', error);
-                    this.showMessage('Failed to connect to session: ' + error.message, 'danger');
-                    this.updateConnectionStatus('error');
-                    this.showNoSession();
+                    console.error('Error checking session:', error);
+                    this.showSection('noSession');
                 }
-            },
+            }
 
-            showActiveSession: function() {
-                console.log('Showing active session UI');
-                document.getElementById('loadingSection').classList.add('hidden');
-                document.getElementById('activeSession').classList.remove('hidden');
-                document.getElementById('closedSession').classList.add('hidden');
-                document.getElementById('noSession').classList.add('hidden');
-                
-                if (this.sessionData) {
-                    console.log('Updating session display:', {
-                        subject: this.sessionData.subject,
-                        week: this.sessionData.week,
-                        maxAttendees: this.sessionData.maxAttendees
-                    });
-                    document.getElementById('displaySubject').textContent = this.sessionData.subject || '-';
-                    document.getElementById('displayWeek').textContent = this.sessionData.week || '-';
-                    document.getElementById('maxAttendees').textContent = this.sessionData.maxAttendees || '-';
-                    this.updateAttendanceCount();
-                }
-            },
+            showSection(sectionId) {
+                ['loadingSection', 'activeSession', 'closedSession', 'noSession'].forEach(id => {
+                    document.getElementById(id).classList.add('hidden');
+                });
+                document.getElementById(sectionId).classList.remove('hidden');
+            }
 
-            showClosedSession: function() {
-                document.getElementById('loadingSection').classList.add('hidden');
-                document.getElementById('activeSession').classList.add('hidden');
-                document.getElementById('closedSession').classList.remove('hidden');
-                document.getElementById('noSession').classList.add('hidden');
-                this.updateConnectionStatus('offline');
-                this.cleanup(); // Clean up listeners when session is closed
-            },
+            updateSessionInfo() {
+                if (!this.sessionData) return;
 
-            showNoSession: function() {
-                document.getElementById('loadingSection').classList.add('hidden');
-                document.getElementById('activeSession').classList.add('hidden');
-                document.getElementById('closedSession').classList.add('hidden');
-                document.getElementById('noSession').classList.remove('hidden');
-                this.updateConnectionStatus('offline');
-                this.cleanup(); // Clean up listeners when no session
-            },
+                document.getElementById('displaySubject').textContent = this.sessionData.subjectName || '-';
+                document.getElementById('displayWeek').textContent = this.sessionData.weekNumber || '-';
+                document.getElementById('maxAttendees').textContent = this.sessionData.maxAttendees || '-';
 
-            updateAttendanceCount: function() {
-                if (this.sessionData && this.sessionData.attendees) {
-                    const attendedCount = this.sessionData.attendees.length;
-                    document.getElementById('attendedCount').textContent = attendedCount;
-                    
-                    if (attendedCount >= this.sessionData.maxAttendees) {
-                        document.getElementById('submitBtn').disabled = true;
-                        this.showMessage('This session is full', 'info');
-                    } else {
-                        document.getElementById('submitBtn').disabled = false;
-                    }
+                const passwordField = document.getElementById('passwordField');
+                if (this.sessionData.sessionPassword) {
+                    passwordField.classList.remove('hidden');
                 } else {
-                    document.getElementById('attendedCount').textContent = '0';
+                    passwordField.classList.add('hidden');
                 }
-            },
+
+                // Update attended count
+                const submissions = this.sessionData.submissions || {};
+                document.getElementById('attendedCount').textContent = Object.keys(submissions).length;
+            }
+
+            async getClientIP() {
+                try {
+                    const response = await fetch('https://api.ipify.org?format=json');
+                    const data = await response.json();
+                    return data.ip;
+                } catch (error) {
+                    console.error('Error getting IP:', error);
+                    return null;
+                }
+            }
 
             async submitAttendance() {
+                const studentId = document.getElementById('student_id').value.trim();
+                const password = document.getElementById('password').value.trim();
+
+                if (!studentId) {
+                    this.showAlert('Please enter your student ID', 'danger');
+                    return;
+                }
+
+                if (this.sessionData.sessionPassword && password !== this.sessionData.sessionPassword) {
+                    this.showAlert('Invalid session password', 'danger');
+                    return;
+                }
+
                 try {
-                    if (!this.sessionData || !this.sessionData.active) {
-                        this.showMessage('Session is not active', 'danger');
-                    return;
-                }
-
-                    const studentId = document.getElementById('student_id').value.trim();
-                    const password = document.getElementById('password').value;
-
-                if (this.sessionData.password && password !== this.sessionData.password) {
-                        this.showMessage('Incorrect session password', 'danger');
-                    return;
-                }
-
-                    // Check if student exists in roster
-                    const student = this.sessionData.roster.find(s => s.id === studentId);
-                    if (!student) {
-                        this.showMessage('Student ID not found in roster', 'danger');
+                    // Check if session is still active
+                    if (this.sessionData.status === 'ended') {
+                        this.showAlert('This session has ended', 'danger');
+                        this.showSection('closedSession');
                         return;
                     }
 
-                    // Check if student already attended
-                    const existingAttendee = Object.values(this.sessionData.attendees || {}).find(a => a.id === studentId);
-                    if (existingAttendee) {
-                        this.showMessage('Attendance already recorded for this ID', 'danger');
+                    // Check if max attendees reached
+                    const currentCount = Object.keys(this.sessionData.submissions || {}).length;
+                    if (currentCount >= this.sessionData.maxAttendees) {
+                        this.showAlert('Maximum attendance limit reached', 'danger');
                         return;
                     }
 
-                    // Handle location check
-                    if (this.sessionData.useLocation) {
-                        const locationResult = await this.verifyLocation();
-                        if (!locationResult.success) {
-                            this.showMessage(locationResult.message, 'danger');
-                        return;
-                        }
-                    }
+                    // Get client IP
+                    const clientIP = await this.getClientIP();
 
-                    // Record attendance
-                    const attendanceData = {
-                        id: student.id,
-                        name: student.name,
-                        section: student.section,
-                        timestamp: Date.now(),
-                        deviceId: this.deviceId,
-                        ip: this.currentIP
-                    };
+                    // Check for existing submissions with same IP
+                    const submissions = this.sessionData.submissions || {};
+                    const duplicateIP = Object.values(submissions).some(sub => sub.ip === clientIP);
 
-                    if (this.lastLocation) {
-                        attendanceData.location = this.lastLocation;
-                    }
-
-                    await window.dbPush(this.attendeesRef, attendanceData);
-                    this.showMessage('✅ Attendance recorded successfully!', 'success');
-                    document.getElementById('attendanceForm').reset();
-                    document.getElementById('submitBtn').disabled = true;
-                    
-                } catch (error) {
-                    console.error('Attendance submission error:', error);
-                    this.showMessage('Failed to submit attendance: ' + error.message, 'danger');
-                }
-            },
-
-            verifyLocation: async function() {
-                return new Promise((resolve) => {
-                    if (!this.sessionData.classLocation) {
-                        resolve({ success: true, message: 'No location constraint set' });
-                        return;
-                    }
-
-                    if (!navigator.geolocation) {
-                        resolve({ 
-                            success: false,
-                            message: 'Geolocation is not supported by your browser. Please use a modern browser with location services enabled.'
-                        });
-                        return;
-                    }
-                    
-                    const handleLocationError = (error) => {
-                        console.error('Location error:', error);
-                        let message = 'Could not get your location. ';
-                        switch(error.code) {
-                            case error.PERMISSION_DENIED:
-                                message += 'Please enable location services in your browser settings.';
-                                break;
-                            case error.POSITION_UNAVAILABLE:
-                                message += 'Location information is unavailable. Please try again or check your device settings.';
-                                break;
-                            case error.TIMEOUT:
-                                message += 'Location request timed out. Please try again.';
-                                break;
-                            default:
-                                message += 'Please make sure location services are enabled.';
-                        }
-                        resolve({ success: false, message });
-                    };
-                    
-                    navigator.geolocation.getCurrentPosition(
-                        (position) => {
-                            const studentLat = position.coords.latitude;
-                            const studentLng = position.coords.longitude;
-                            const classLat = this.sessionData.classLocation.lat;
-                            const classLng = this.sessionData.classLocation.lng;
+                    // Get location if enabled
+                    let location = null;
+                    if (this.sessionData.locationEnabled) {
+                        try {
+                            location = await this.getCurrentLocation();
                             
-                            // Calculate distance
+                            if (!location) {
+                                this.showAlert('Unable to get location. Please enable location services.', 'danger');
+                                return;
+                            }
+
                             const distance = this.calculateDistance(
-                                studentLat, studentLng,
-                                classLat, classLng
+                                location.latitude,
+                                location.longitude,
+                                this.sessionData.location.coordinates.latitude,
+                                this.sessionData.location.coordinates.longitude
                             );
 
-                            this.lastLocation = {
-                                latitude: studentLat,
-                                longitude: studentLng,
-                                accuracy: position.coords.accuracy,
-                                distance: distance
-                            };
-
-                            const maxDistance = this.sessionData.locationDistance || 50;
-                            if (distance <= maxDistance) {
-                                resolve({ 
-                                    success: true,
-                                    message: `Location verified (${distance.toFixed(0)}m from class)`
-                                });
-                            } else {
-                                resolve({ 
-                                    success: false,
-                                    message: `Too far from class location (${distance.toFixed(0)}m away, max ${maxDistance}m)`
-                                });
+                            if (distance > this.sessionData.location.maxDistance) {
+                                this.showAlert(`You are too far from the classroom (${Math.round(distance)}m away)`, 'danger');
+                                return;
                             }
-                        },
-                        handleLocationError,
+                        } catch (error) {
+                            this.showAlert('Location access denied. Please enable location services.', 'danger');
+                            return;
+                        }
+                    }
+
+                    // Submit attendance
+                    const submissionRef = ref(this.db, `sessions/${this.sessionData.id}/submissions/${studentId}`);
+                    await set(submissionRef, {
+                        timestamp: Date.now(),
+                        ip: clientIP,
+                        ipDuplicate: duplicateIP,
+                        location: location
+                    });
+
+                    this.showAlert('Attendance submitted successfully!', 'success');
+                    document.getElementById('attendanceForm').reset();
+
+                } catch (error) {
+                    console.error('Error submitting attendance:', error);
+                    this.showAlert('Error submitting attendance. Please try again.', 'danger');
+                }
+            }
+
+            async getCurrentLocation() {
+                return new Promise((resolve, reject) => {
+                    if (!navigator.geolocation) {
+                        reject(new Error('Geolocation is not supported'));
+                        return;
+                    }
+
+                    navigator.geolocation.getCurrentPosition(
+                        position => resolve({
+                            latitude: position.coords.latitude,
+                            longitude: position.coords.longitude
+                        }),
+                        error => reject(error),
                         { 
-                            enableHighAccuracy: true, 
+                            enableHighAccuracy: true,
                             timeout: 10000,
                             maximumAge: 0
                         }
                     );
                 });
-            },
+            }
 
-            calculateDistance: function(lat1, lon1, lat2, lon2) {
+            calculateDistance(lat1, lon1, lat2, lon2) {
                 const R = 6371e3; // Earth's radius in meters
                 const φ1 = lat1 * Math.PI/180;
                 const φ2 = lat2 * Math.PI/180;
                 const Δφ = (lat2-lat1) * Math.PI/180;
                 const Δλ = (lon2-lon1) * Math.PI/180;
-                
-                const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                          Math.cos(φ1) * Math.cos(φ2) *
-                          Math.sin(Δλ/2) * Math.sin(Δλ/2);
-                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-                
-                return R * c; // Distance in meters
-            },
 
-            showMessage: function(text, type) {
+                const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                        Math.cos(φ1) * Math.cos(φ2) *
+                        Math.sin(Δλ/2) * Math.sin(Δλ/2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+                return R * c; // Distance in meters
+            }
+
+            showAlert(message, type) {
                 const messageDiv = document.getElementById('message');
-                messageDiv.textContent = text;
                 messageDiv.className = `alert alert-${type}`;
+                messageDiv.textContent = message;
                 messageDiv.classList.remove('hidden');
-                
+
                 setTimeout(() => {
                     messageDiv.classList.add('hidden');
                 }, 5000);
-            },
-
-            updateConnectionStatus: function(status) {
-                const indicator = document.getElementById('connectionIndicator');
-                const statusText = document.getElementById('connectionStatus');
-                
-                indicator.className = 'sync-indicator';
-                switch(status) {
-                    case 'connecting':
-                        indicator.classList.add('connecting');
-                        statusText.textContent = 'Connecting...';
-                        break;
-                    case 'connected':
-                        indicator.classList.add('connected');
-                        statusText.textContent = 'Connected';
-                        break;
-                    case 'error':
-                        statusText.textContent = 'Connection Error';
-                        break;
-                }
             }
-        };
+        }
 
-        // Initialize when DOM is ready
-        document.addEventListener('DOMContentLoaded', () => {
-            console.log('DOM loaded, initializing form...');
-            formApp.init();
-        });
+        // Initialize the form
+        const attendanceForm = new AttendanceForm();
     </script>
 </body>
 </html>
