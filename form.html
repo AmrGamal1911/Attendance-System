@@ -458,9 +458,11 @@
 
                     const sessionData = sessionSnapshot.val();
                     console.log('Initial session data:', sessionData ? 'received' : 'empty');
+                    console.log('Session active status:', sessionData.active);
                     
                     // Check if this is TA's device
                     if (sessionData.taIP === this.currentIP) {
+                        console.log('TA device detected, blocking submission');
                         this.showMessage("⚠️ TA device cannot submit attendance.", "danger");
                         document.getElementById('submitBtn').disabled = true;
                         return;
@@ -469,12 +471,24 @@
                     this.sessionData = sessionData;
                     this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
 
+                    // Show initial session state first
+                    if (!this.sessionData.active) {
+                        console.log('Session is not active, showing closed state');
+                        this.showClosedSession();
+                        return;
+                    } else {
+                        console.log('Session is active, showing active state');
+                        this.showActiveSession();
+                        this.updateConnectionStatus('connected');
+                    }
+
                     // Set up real-time listener
                     window.dbOnValue(this.sessionRef, (snapshot) => {
                         const data = snapshot.val();
                         console.log('Real-time session update received:', data ? 'yes' : 'no');
                         
                         if (!data) {
+                            console.log('No session data in update, showing no session');
                             this.showNoSession();
                             return;
                         }
@@ -482,10 +496,12 @@
                         this.sessionData = data;
                         
                         if (!this.sessionData.active) {
+                            console.log('Session became inactive, showing closed state');
                             this.showClosedSession();
                             return;
                         }
 
+                        console.log('Session is still active, updating UI');
                         this.showActiveSession();
                         this.updateConnectionStatus('connected');
                         
@@ -502,6 +518,7 @@
                     window.dbOnValue(this.attendeesRef, (snapshot) => {
                         const attendees = snapshot.val() || {};
                         const attendeeList = Object.values(attendees);
+                        console.log('Received attendees update:', attendeeList.length, 'attendees');
                         
                         if (this.sessionData) {
                             this.sessionData.attendees = attendeeList;
@@ -510,14 +527,6 @@
                     }, (error) => {
                         console.error('Attendees listener error:', error);
                     });
-
-                    // Show initial session state
-                    if (!this.sessionData.active) {
-                        this.showClosedSession();
-                    } else {
-                        this.showActiveSession();
-                        this.updateConnectionStatus('connected');
-                    }
 
                 } catch (error) {
                     console.error('Session initialization error:', error);
@@ -528,12 +537,18 @@
             },
 
             showActiveSession: function() {
+                console.log('Showing active session UI');
                 document.getElementById('loadingSection').classList.add('hidden');
                 document.getElementById('activeSession').classList.remove('hidden');
                 document.getElementById('closedSession').classList.add('hidden');
                 document.getElementById('noSession').classList.add('hidden');
                 
                 if (this.sessionData) {
+                    console.log('Updating session display:', {
+                        subject: this.sessionData.subject,
+                        week: this.sessionData.week,
+                        maxAttendees: this.sessionData.maxAttendees
+                    });
                     document.getElementById('displaySubject').textContent = this.sessionData.subject || '-';
                     document.getElementById('displayWeek').textContent = this.sessionData.week || '-';
                     document.getElementById('maxAttendees').textContent = this.sessionData.maxAttendees || '-';
