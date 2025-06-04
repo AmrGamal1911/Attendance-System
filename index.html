@@ -1535,7 +1535,16 @@
                     if (data.flagged && data.secondStudentId) {
                         // Only mark the second student as using a shared token
                         const deviceMatch = data.deviceHash === data.secondDeviceHash;
-                        tokenLinkNote[data.secondStudentId] = `Token already used by ID: ${data.id}${deviceMatch ? ' (Same Device)' : ' (Different Device)'}`;
+                        const deviceNote = deviceMatch ? ' (Same Device)' : ' (Different Device)';
+                        
+                        // Calculate time difference between form loads
+                        const timeDiff = Math.abs(data.formLoadTime - data.secondFormLoadTime) / 1000; // in seconds
+                        const timeDiffNote = timeDiff > 60 ? 
+                            ` [Form opened ${Math.round(timeDiff/60)} mins apart]` : 
+                            ` [Form opened ${Math.round(timeDiff)} secs apart]`;
+                        
+                        const tokenNote = `Token already used by ID: ${data.id}${deviceNote}${timeDiffNote}`;
+                        tokenLinkNote[data.secondStudentId] = tokenNote;
                     }
                 });
                 
