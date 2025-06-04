@@ -355,6 +355,9 @@
                         <input type="password" id="password" name="password" placeholder="Enter session password">
                     </div>
                     
+                    <!-- Hidden device token field -->
+                    <input type="hidden" id="deviceToken" name="deviceToken">
+                    
                     <button type="submit" class="btn" id="submitBtn">
                         <i class="fas fa-check-circle"></i> Submit Attendance
                     </button>
@@ -387,14 +390,28 @@
             locationAttempts: 0,
             maxLocationAttempts: 2,
             currentToken: null,
+            initialLoadTime: null,
 
             init: function() {
                 this.currentSessionId = new URLSearchParams(window.location.search).get('session');
-                this.currentToken = this.generateToken();
                 
                 if (!this.currentSessionId) {
                     this.showNoSession();
                     return;
+                }
+
+                // Check if there's an existing token for this session
+                const existingToken = localStorage.getItem(`formToken_${this.currentSessionId}`);
+                const existingLoadTime = localStorage.getItem(`formLoadTime_${this.currentSessionId}`);
+
+                if (existingToken && existingLoadTime) {
+                    // Use existing token if it exists
+                    this.currentToken = existingToken;
+                    this.initialLoadTime = parseInt(existingLoadTime);
+                    document.getElementById('deviceToken').value = existingToken;
+                } else {
+                    // Generate new token if none exists
+                    this.generateAndSetDeviceToken();
                 }
                 
                 this.initializeSession();
@@ -405,20 +422,40 @@
                 });
             },
 
-            generateToken: function() {
-                // Generate a unique device identifier using available browser data
+            generateAndSetDeviceToken: function() {
+                // Generate device fingerprint data
                 const deviceData = {
                     userAgent: navigator.userAgent,
                     language: navigator.language,
                     platform: navigator.platform,
                     screenResolution: `${window.screen.width}x${window.screen.height}`,
                     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                    sessionTime: Date.now()
+                    colorDepth: window.screen.colorDepth,
+                    pixelRatio: window.devicePixelRatio,
+                    hardwareConcurrency: navigator.hardwareConcurrency,
+                    deviceMemory: navigator.deviceMemory,
+                    initialLoadTime: Date.now() // Add initial form load timestamp
                 };
-                
+
                 // Create a hash from the device data
                 const deviceHash = this.hashCode(JSON.stringify(deviceData));
-                return `token_${deviceHash}_${Date.now().toString(36)}`;
+                
+                // Generate a unique session component
+                const sessionComponent = Math.random().toString(36).substring(2, 15);
+                
+                // Combine device hash and session component with load timestamp
+                const deviceToken = `${deviceHash}_${sessionComponent}_${deviceData.initialLoadTime}`;
+                
+                // Set the token in the hidden field
+                document.getElementById('deviceToken').value = deviceToken;
+                
+                // Store token and initial load time in the instance
+                this.currentToken = deviceToken;
+                this.initialLoadTime = deviceData.initialLoadTime;
+
+                // Store the token generation time in localStorage to prevent token regeneration on page refresh
+                localStorage.setItem(`formToken_${this.currentSessionId}`, deviceToken);
+                localStorage.setItem(`formLoadTime_${this.currentSessionId}`, deviceData.initialLoadTime);
             },
 
             hashCode: function(str) {
@@ -534,9 +571,22 @@
             async submitAttendance() {
                 const studentId = document.getElementById('student_id').value.trim().toUpperCase();
                 const password = document.getElementById('password')?.value;
+                const deviceToken = document.getElementById('deviceToken').value;
                 
                 if (!studentId) {
                     this.showMessage('Please enter your student ID', 'danger');
+                    return;
+                }
+
+                if (!deviceToken) {
+                    this.showMessage('Invalid device token. Please refresh the page.', 'danger');
+                    return;
+                }
+
+                // Check if this is a delayed submission (more than 30 minutes after form load)
+                const submissionDelay = Date.now() - this.initialLoadTime;
+                if (submissionDelay > 30 * 60 * 1000) { // 30 minutes in milliseconds
+                    this.showMessage('Form submission timeout. Please refresh the page and try again.', 'danger');
                     return;
                 }
 
@@ -597,7 +647,7 @@
                 }
                 
                 // Token verification
-                const tokenPath = `sessions/${this.currentSessionId}/tokens/${this.currentToken}`;
+                const tokenPath = `sessions/${this.currentSessionId}/tokens/${deviceToken}`;
                 const tokenSnap = await window.dbGet(window.dbRef(window.database, tokenPath));
                 const tokenData = tokenSnap.val();
                 const currentIP = await fetch('https://api.ipify.org?format=json').then(r => r.json()).then(data => data.ip).catch(() => 'unknown');
@@ -611,7 +661,10 @@
                         id: studentId,
                         ip: currentIP,
                         timestamp: Date.now(),
-                        deviceHash: this.currentToken.split('_')[1], // Store device hash for verification
+                        deviceToken: deviceToken,
+                        deviceHash: deviceToken.split('_')[0],
+                        formLoadTime: this.initialLoadTime,
+                        submissionDelay: submissionDelay,
                         used: true,
                         flagged: false
                     });
@@ -624,7 +677,10 @@
                         await window.dbSet(window.dbRef(window.database, tokenPath + "/flagged"), true);
                         await window.dbSet(window.dbRef(window.database, tokenPath + "/secondStudentId"), studentId);
                         await window.dbSet(window.dbRef(window.database, tokenPath + "/secondStudentTimestamp"), Date.now());
-                        await window.dbSet(window.dbRef(window.database, tokenPath + "/secondDeviceHash"), this.currentToken.split('_')[1]);
+                        await window.dbSet(window.dbRef(window.database, tokenPath + "/secondDeviceToken"), deviceToken);
+                        await window.dbSet(window.dbRef(window.database, tokenPath + "/secondDeviceHash"), deviceToken.split('_')[0]);
+                        await window.dbSet(window.dbRef(window.database, tokenPath + "/secondFormLoadTime"), this.initialLoadTime);
+                        await window.dbSet(window.dbRef(window.database, tokenPath + "/secondSubmissionDelay"), submissionDelay);
 
                         this.showMessage("⚠️ Token already used by another student. Attendance not counted.", "danger");
                         return; // DO NOT submit attendance for second student
@@ -677,7 +733,7 @@
                         section: student.section || '',
                         timestamp: Date.now(),
                         ip: ipAddress,
-                        token: this.currentToken,
+                        token: deviceToken,
                         isFromTaIp: ipAddress === this.sessionData.taIpAddress
                     };
                     
