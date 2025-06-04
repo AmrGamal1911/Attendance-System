@@ -397,11 +397,13 @@
                 try {
                     console.log('Starting form initialization...');
                     this.currentSessionId = new URLSearchParams(window.location.search).get('session');
+                    this.currentToken = new URLSearchParams(window.location.search).get('token');
                     this.deviceId = localStorage.getItem('deviceId') || crypto.randomUUID();
                     localStorage.setItem('deviceId', this.deviceId);
                     
-                    if (!this.currentSessionId) {
-                        console.error('No session ID provided');
+                    if (!this.currentSessionId || !this.currentToken) {
+                        console.error('Missing session ID or token');
+                        this.showMessage('Invalid or missing session link. Please use the link provided by your instructor.', 'danger');
                         this.showNoSession();
                         return;
                     }
@@ -442,10 +444,29 @@
                 this.updateConnectionStatus('connecting');
                 
                 try {
+                    // First validate the token
+                    const tokenRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens/${this.currentToken}`);
+                    const tokenSnapshot = await window.dbGet(tokenRef);
+                    
+                    if (!tokenSnapshot.exists()) {
+                        console.error('Invalid token');
+                        this.showMessage('Invalid attendance link. Please use the link provided by your instructor.', 'danger');
+                        this.showNoSession();
+                        return;
+                    }
+
+                    const tokenData = tokenSnapshot.val();
+                    if (tokenData.used) {
+                        console.error('Token already used');
+                        this.showMessage('This attendance link has already been used.', 'danger');
+                        this.showNoSession();
+                        return;
+                    }
+
                     // Set up session reference
                     this.sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
                     
-                    // First get the session data
+                    // Get the session data
                     const sessionSnapshot = await window.dbGet(this.sessionRef);
                     console.log('Session snapshot received:', sessionSnapshot.exists() ? 'yes' : 'no');
                     
@@ -464,6 +485,10 @@
                         document.getElementById('submitBtn').disabled = true;
                         return;
                     }
+
+                    // Pre-fill student ID if token is valid
+                    document.getElementById('student_id').value = tokenData.id;
+                    document.getElementById('student_id').readOnly = true;
 
                     this.sessionData = sessionData;
                     this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
@@ -611,6 +636,15 @@
                         return;
                     }
 
+                    // Mark token as used
+                    await window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens/${this.currentToken}`), {
+                        ...this.sessionData.tokens[this.currentToken],
+                        used: true,
+                        issuedToDevice: this.deviceId,
+                        issuedToIP: this.currentIP,
+                        usedAt: Date.now()
+                    });
+
                     // Record attendance
                     const attendanceData = {
                         id: student.id,
@@ -618,7 +652,8 @@
                         section: student.section,
                         timestamp: Date.now(),
                         deviceId: this.deviceId,
-                        ip: this.currentIP
+                        ip: this.currentIP,
+                        token: this.currentToken
                     };
 
                     if (this.lastLocation) {
@@ -628,10 +663,11 @@
                     await window.dbPush(this.attendeesRef, attendanceData);
                     this.showMessage('✅ Attendance recorded successfully!', 'success');
                     document.getElementById('attendanceForm').reset();
+                    document.getElementById('submitBtn').disabled = true;
                     
                 } catch (error) {
                     console.error('Attendance submission error:', error);
-                    this.showMessage('Failed to submit attendance', 'danger');
+                    this.showMessage('Failed to submit attendance: ' + error.message, 'danger');
                 }
             },
 
