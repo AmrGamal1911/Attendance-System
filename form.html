@@ -11,21 +11,23 @@
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
         import { getDatabase, ref, onValue, push, off, set, get } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
 
-            const firebaseConfig = {
-                apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
-                authDomain: "eelu-attendance.firebaseapp.com",
-                databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
-                projectId: "eelu-attendance",
-                storageBucket: "eelu-attendance.appspot.com",
-                messagingSenderId: "5132239076",
-                appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
-                measurementId: "G-D2WNX8RGRL"
-            };
+        // Initialize Firebase with your config
+        const firebaseConfig = {
+            apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
+            authDomain: "eelu-attendance.firebaseapp.com",
+            databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
+            projectId: "eelu-attendance",
+            storageBucket: "eelu-attendance.appspot.com",
+            messagingSenderId: "5132239076",
+            appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
+            measurementId: "G-D2WNX8RGRL"
+        };
 
-        const firebaseApp = initializeApp(firebaseConfig);
-        const database = getDatabase(firebaseApp);
+        try {
+            const firebaseApp = initializeApp(firebaseConfig);
+            const database = getDatabase(firebaseApp);
 
-        // Make Firebase functions available globally
+            // Make Firebase functions available globally
             window.database = database;
             window.dbRef = ref;
             window.dbSet = set;
@@ -33,6 +35,9 @@
             window.dbPush = push;
             window.dbOff = off;
             window.dbGet = get;
+        } catch (error) {
+            console.error('Firebase initialization error:', error);
+        }
     </script>
     
     <style>
