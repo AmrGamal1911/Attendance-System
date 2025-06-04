@@ -427,6 +427,11 @@
                     
                     await this.initializeSession();
                     
+                    // Clean up listeners when page is closed or navigated away
+                    window.addEventListener('beforeunload', () => {
+                        this.cleanup();
+                    });
+                    
                     document.getElementById('attendanceForm').addEventListener('submit', (e) => {
                         e.preventDefault();
                         this.submitAttendance();
@@ -438,11 +443,26 @@
                 }
             },
 
+            cleanup: function() {
+                console.log('Cleaning up form resources...');
+                if (this.sessionRef) {
+                    window.dbOff(this.sessionRef);
+                    this.sessionRef = null;
+                }
+                if (this.attendeesRef) {
+                    window.dbOff(this.attendeesRef);
+                    this.attendeesRef = null;
+                }
+            },
+
             initializeSession: async function() {
                 console.log('Setting up session connection...');
                 this.updateConnectionStatus('connecting');
                 
                 try {
+                    // Clean up any existing listeners
+                    this.cleanup();
+                    
                     // Set up session reference
                     this.sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
                     
@@ -562,9 +582,7 @@
                 document.getElementById('closedSession').classList.remove('hidden');
                 document.getElementById('noSession').classList.add('hidden');
                 this.updateConnectionStatus('offline');
-                
-                if (this.sessionRef) window.dbOff(this.sessionRef);
-                if (this.attendeesRef) window.dbOff(this.attendeesRef);
+                this.cleanup(); // Clean up listeners when session is closed
             },
 
             showNoSession: function() {
@@ -573,6 +591,7 @@
                 document.getElementById('closedSession').classList.add('hidden');
                 document.getElementById('noSession').classList.remove('hidden');
                 this.updateConnectionStatus('offline');
+                this.cleanup(); // Clean up listeners when no session
             },
 
             updateAttendanceCount: function() {
