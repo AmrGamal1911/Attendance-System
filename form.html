@@ -480,17 +480,15 @@
                     console.log('Initial session data:', sessionData ? 'received' : 'empty');
                     console.log('Session active status:', sessionData.active);
                     
-                    // Check if this is TA's device - only in production
-                    if (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
-                        if (sessionData.taIP === this.currentIP && sessionData.blockSameIP) {
-                            console.log('TA device detected, blocking submission');
-                            this.showMessage("⚠️ TA device cannot submit attendance.", "danger");
-                            document.getElementById('submitBtn').disabled = true;
-                            return;
-                        }
+                    // Check if this is TA's device
+                    if (sessionData.taIP === this.currentIP) {
+                        console.log('TA device detected, blocking submission');
+                        this.showMessage("⚠️ TA device cannot submit attendance.", "danger");
+                        document.getElementById('submitBtn').disabled = true;
+                        return;
                     }
 
-                    this.sessionData = sessionData;
+                        this.sessionData = sessionData;
                     this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
 
                     // Show initial session state first
@@ -616,16 +614,16 @@
                 try {
                     if (!this.sessionData || !this.sessionData.active) {
                         this.showMessage('Session is not active', 'danger');
-                        return;
-                    }
+                    return;
+                }
 
                     const studentId = document.getElementById('student_id').value.trim();
                     const password = document.getElementById('password').value;
 
-                    if (this.sessionData.password && password !== this.sessionData.password) {
+                if (this.sessionData.password && password !== this.sessionData.password) {
                         this.showMessage('Incorrect session password', 'danger');
-                        return;
-                    }
+                    return;
+                }
 
                     // Check if student exists in roster
                     const student = this.sessionData.roster.find(s => s.id === studentId);
@@ -646,15 +644,8 @@
                         const locationResult = await this.verifyLocation();
                         if (!locationResult.success) {
                             this.showMessage(locationResult.message, 'danger');
-                            return;
+                        return;
                         }
-                    }
-
-                    // Check for same IP if enabled
-                    const sameIPStudents = [];
-                    if (this.sessionData.blockSameIP) {
-                        const attendees = Object.values(this.sessionData.attendees || {});
-                        sameIPStudents.push(...attendees.filter(a => a.ip === this.currentIP).map(a => a.id));
                     }
 
                     // Record attendance
@@ -664,8 +655,7 @@
                         section: student.section,
                         timestamp: Date.now(),
                         deviceId: this.deviceId,
-                        ip: this.currentIP,
-                        sameIPWith: sameIPStudents.length > 0 ? sameIPStudents : undefined
+                        ip: this.currentIP
                     };
 
                     if (this.lastLocation) {
