@@ -9,17 +9,6 @@
     <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     
-    <script>
-        function loadGoogleMaps() {
-            const script = document.createElement('script');
-            script.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes&libraries=places&callback=initMap';
-            script.async = true;
-            script.defer = true;
-            document.head.appendChild(script);
-        }
-        window.addEventListener('load', loadGoogleMaps);
-    </script>
-
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
         import { getDatabase, ref, set, onValue, push, serverTimestamp, off, get } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
@@ -912,12 +901,22 @@
     <!-- Location Picker Modal -->
     <div id="locationModal" class="modal hidden">
         <div class="modal-content">
-            <h2><i class="fas fa-map-marker-alt"></i> Select Class Location</h2>
-            <div id="map" style="height: 400px; width: 100%; margin: 1rem 0;"></div>
+            <h2><i class="fas fa-map-marker-alt"></i> Set Class Location</h2>
+            
             <div class="form-group">
-                <label><i class="fas fa-search"></i> Search Location:</label>
-                <input type="text" id="locationSearch" placeholder="Search for a location" class="full-width">
+                <label for="modalLatitude">
+                    <i class="fas fa-map-marker-alt"></i>
+                    Latitude
+                </label>
+                <input type="number" id="modalLatitude" step="any" placeholder="Enter latitude">
+                
+                <label for="modalLongitude">
+                    <i class="fas fa-map-marker-alt"></i>
+                    Longitude
+                </label>
+                <input type="number" id="modalLongitude" step="any" placeholder="Enter longitude">
             </div>
+
             <div class="flex gap-4">
                 <button onclick="app.useCurrentLocation()" class="btn btn-secondary">
                     <i class="fas fa-location-arrow"></i> Use Current Location
@@ -1086,12 +1085,10 @@
                             lng: pos.coords.longitude
                         };
                         
-                        if (this.map) {
-                            this.map.setCenter(location);
-                            this.marker.setPosition(location);
-                            this.selectedLocation = location;
-                        }
+                        document.getElementById('modalLatitude').value = location.lat;
+                        document.getElementById('modalLongitude').value = location.lng;
                         
+                        this.selectedLocation = location;
                         this.showMessage('Current location set!', 'success');
                     }, (err) => {
                         this.showMessage('Could not get current location: ' + err.message, 'danger');
@@ -1102,23 +1099,17 @@
             },
 
             confirmLocation: function() {
-                if (!this.selectedLocation) {
-                    this.showMessage('Please select a location on the map', 'danger');
+                const lat = parseFloat(document.getElementById('modalLatitude').value);
+                const lng = parseFloat(document.getElementById('modalLongitude').value);
+                
+                if (isNaN(lat) || isNaN(lng)) {
+                    this.showMessage('Please enter valid latitude and longitude values', 'danger');
                     return;
                 }
                 
-                this.classLocation = this.selectedLocation;
-                
-                if (this.map) {
-                    const geocoder = new google.maps.Geocoder();
-                    geocoder.geocode({ location: this.selectedLocation }, (results, status) => {
-                        let address = 'Custom location selected';
-                        if (status === 'OK' && results[0]) {
-                            address = results[0].formatted_address;
-                        }
-                        document.getElementById('locationPreview').textContent = address;
-                    });
-                }
+                this.classLocation = { lat, lng };
+                document.getElementById('locationPreview').textContent = 
+                    `Location set to: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
                 
                 this.closeLocationModal();
                 this.showMessage('Class location set successfully!', 'success');
