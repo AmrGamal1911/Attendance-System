@@ -2067,10 +2067,13 @@
                 }, 5000);
             },
 
-            openLocationQRModal: function() {
+            openLocationModal: function() {
+                document.getElementById('locationQRModal').classList.remove('hidden');
+                document.getElementById('locationStatus').classList.remove('hidden');
+                
                 const locationId = 'loc_' + Date.now();
                 const baseUrl = window.location.origin;
-                const locationUrl = `${baseUrl}/location.html?id=${locationId}&session=${this.currentSessionId}`;
+                const locationUrl = `${baseUrl}/location.html?id=${locationId}`;
                 
                 // Generate QR code
                 const qr = qrcode(0, 'L');
@@ -2078,10 +2081,9 @@
                 qr.make();
                 
                 document.getElementById('locationQRCode').innerHTML = qr.createImgTag(8);
-                document.getElementById('locationQRModal').classList.remove('hidden');
                 
                 // Listen for location update in Firebase
-                const locationRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/tempLocation/${locationId}`);
+                const locationRef = window.dbRef(window.database, `tempLocations/${locationId}`);
                 window.dbOnValue(locationRef, (snapshot) => {
                     const locationData = snapshot.val();
                     if (locationData) {
@@ -2099,6 +2101,11 @@
                         
                         this.closeLocationModal();
                         this.showMessage('Location successfully set from mobile device!', 'success');
+                        
+                        // Update the location settings display
+                        document.getElementById('locationSettings').classList.remove('hidden');
+                        document.getElementById('locationPreview').textContent = 
+                            `Current location: ${locationData.latitude.toFixed(6)}, ${locationData.longitude.toFixed(6)}`;
                     }
                 });
             },
