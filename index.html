@@ -2117,6 +2117,126 @@
                     tokens.push(token);
                 }
                 return tokens;
+            },
+
+            createSession: async function() {
+                try {
+                    const subject = document.getElementById('subject').value.trim();
+                    const week = document.getElementById('week').value.trim();
+                    const maxAttendees = parseInt(document.getElementById('maxAttendees').value);
+                    const password = document.getElementById('password').value.trim();
+                    
+                    if (!subject || !week || isNaN(maxAttendees) || maxAttendees <= 0) {
+                        this.showMessage('Please fill all required fields correctly', 'danger');
+                        return;
+                    }
+
+                    // Generate tokens
+                    const tokens = [];
+                    for (let i = 0; i < maxAttendees; i++) {
+                        tokens.push(this.generateToken());
+                    }
+
+                    // Create session data
+                    const sessionData = {
+                        subject: subject,
+                        week: week,
+                        maxAttendees: maxAttendees,
+                        password: password || null,
+                        active: true,
+                        createdAt: window.dbServerTimestamp(),
+                        availableTokens: tokens,
+                        usedTokens: {},
+                        attendees: {}
+                    };
+
+                    // Get a new session reference
+                    const newSessionRef = window.dbPush(this.sessionsRef);
+                    const sessionId = newSessionRef.key;
+
+                    // Save session data
+                    await window.dbSet(newSessionRef, sessionData);
+
+                    // Generate QR code and link
+                    const sessionUrl = `${window.location.origin}/form.html?session=${sessionId}`;
+                    const qr = new QRCode(document.getElementById("qrcode"), {
+                        text: sessionUrl,
+                        width: 256,
+                        height: 256,
+                        colorDark: "#000000",
+                        colorLight: "#ffffff",
+                        correctLevel: QRCode.CorrectLevel.H
+                    });
+
+                    // Show session info
+                    document.getElementById('sessionLink').value = sessionUrl;
+                    document.getElementById('sessionId').textContent = sessionId;
+                    document.getElementById('createSection').classList.add('hidden');
+                    document.getElementById('activeSection').classList.remove('hidden');
+
+                    // Set up session listeners
+                    this.setupSessionListeners(sessionId);
+                    this.showMessage('Session created successfully!', 'success');
+
+                } catch (error) {
+                    console.error('Error creating session:', error);
+                    this.showMessage('Failed to create session. Please try again.', 'danger');
+                }
+            },
+
+            generateToken: function() {
+                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                let token = '';
+                for (let i = 0; i < 6; i++) {
+                    token += chars.charAt(Math.floor(Math.random() * chars.length));
+                }
+                return token;
+            },
+
+            setupSessionListeners: function(sessionId) {
+                // Remove any existing listeners
+                if (this.currentSessionRef) {
+                    window.dbOff(this.currentSessionRef);
+                }
+                if (this.currentAttendeesRef) {
+                    window.dbOff(this.currentAttendeesRef);
+                }
+
+                // Set up new listeners
+                this.currentSessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
+                this.currentAttendeesRef = window.dbRef(window.database, `sessions/${sessionId}/attendees`);
+
+                // Listen for session changes
+                window.dbOnValue(this.currentSessionRef, (snapshot) => {
+                    const data = snapshot.val();
+                    if (!data) return;
+
+                    // Update session info
+                    document.getElementById('displaySubject').textContent = data.subject;
+                    document.getElementById('displayWeek').textContent = data.week;
+                    document.getElementById('displayMaxAttendees').textContent = data.maxAttendees;
+                    
+                    const availableCount = data.availableTokens ? data.availableTokens.length : 0;
+                    document.getElementById('availableSlots').textContent = availableCount;
+                    
+                    const usedCount = data.usedTokens ? Object.keys(data.usedTokens).length : 0;
+                    document.getElementById('usedSlots').textContent = usedCount;
+
+                    // Update session status
+                    if (!data.active) {
+                        document.getElementById('sessionStatus').textContent = 'Closed';
+                        document.getElementById('sessionStatus').className = 'status-closed';
+                    } else {
+                        document.getElementById('sessionStatus').textContent = 'Active';
+                        document.getElementById('sessionStatus').className = 'status-active';
+                    }
+                });
+
+                // Listen for attendee changes
+                window.dbOnValue(this.currentAttendeesRef, (snapshot) => {
+                    const attendees = snapshot.val() || {};
+                    this.updateAttendeeTable(attendees);
+                });
             }
         };
 
