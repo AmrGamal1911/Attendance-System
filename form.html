@@ -34,33 +34,113 @@
 
             const database = getDatabase(app);
 
-            // Enable offline persistence
-            const dbRef = ref(database);
-            await set(dbRef, {
-                '.info/connected': true
-            });
+            // Enable offline persistence with timeout
+            try {
+                const dbRef = ref(database);
+                await Promise.race([
+                    set(dbRef, { '.info/connected': true }),
+                    new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Persistence setup timeout')), 10000)
+                    )
+                ]);
+            } catch (error) {
+                console.error('Failed to enable offline persistence:', error);
+            }
 
-            // Set up persistent connection monitoring with retry
+            // Set up persistent connection monitoring with retry and timeout
             const setupConnectionMonitoring = () => {
                 const connectedRef = ref(database, '.info/connected');
+                let connectionTimeout;
+                
+                const clearConnectionTimeout = () => {
+                    if (connectionTimeout) {
+                        clearTimeout(connectionTimeout);
+                        connectionTimeout = null;
+                    }
+                };
+                
+                // Set initial connection timeout
+                connectionTimeout = setTimeout(() => {
+                    console.error('Initial connection timeout');
+                    if (window.formApp) {
+                        window.formApp.handleConnectionLost();
+                    }
+                }, 15000); // 15 second timeout
+
                 onValue(connectedRef, (snapshot) => {
+                    clearConnectionTimeout(); // Clear timeout on successful connection
                     const connected = snapshot.val();
                     if (window.formApp) {
                         if (!connected) {
                             console.error('Firebase connection lost');
                             window.formApp.handleConnectionLost();
+                            
+                            // Set reconnection timeout
+                            connectionTimeout = setTimeout(() => {
+                                setupConnectionMonitoring(); // Retry connection
+                            }, 5000);
                         } else {
                             window.formApp.handleConnectionRestored();
                         }
                     }
                 }, (error) => {
                     console.error('Connection monitoring error:', error);
+                    clearConnectionTimeout();
                     // Retry connection monitoring after delay
                     setTimeout(setupConnectionMonitoring, 5000);
                 });
+
+                // Cleanup function
+                return () => {
+                    clearConnectionTimeout();
+                    off(connectedRef);
+                };
             };
 
-            setupConnectionMonitoring();
+            // Initialize connection monitoring
+            const cleanup = setupConnectionMonitoring();
+
+            // Cleanup on window unload
+            window.addEventListener('unload', cleanup);
+
+            // Verify database connection with retry mechanism
+            const verifyConnection = async (retryCount = 0, maxRetries = 3) => {
+                try {
+                    const testRef = ref(database, '.info/connected');
+                    const snapshot = await Promise.race([
+                        get(testRef),
+                        new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('Connection timeout')), 10000)
+                        )
+                    ]);
+                    
+                    if (!snapshot.val() && retryCount < maxRetries) {
+                        console.log(`Retrying connection (${retryCount + 1}/${maxRetries})...`);
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        return verifyConnection(retryCount + 1, maxRetries);
+                    }
+                    
+                    if (!snapshot.val()) {
+                        throw new Error('Database connection failed after retries');
+                    }
+                    
+                    window.dbConnected = true;
+                    if (window.formApp) {
+                        window.formApp.handleConnectionRestored();
+                    }
+                    
+                } catch (error) {
+                    console.error('Database connection test failed:', error);
+                    window.dbConnected = false;
+                    if (window.formApp) {
+                        window.formApp.showMessage('Failed to connect to database. Please check your internet connection and refresh the page.', 'danger');
+                        window.formApp.updateConnectionStatus('error');
+                    }
+                }
+            };
+
+            // Initial connection verification
+            await verifyConnection();
 
             // Assign to window with connection state
             window.database = database;
@@ -72,34 +152,7 @@
             window.dbGet = get;
             window.dbServerTimestamp = serverTimestamp;
             window.dbRunTransaction = runTransaction;
-            window.dbConnected = true;
-
-            // Verify database connection with retry
-            const verifyConnection = async (retryCount = 0) => {
-                try {
-                    const testRef = ref(database, '.info/connected');
-                    const snapshot = await get(testRef);
-                    
-                    if (!snapshot.val() && retryCount < 3) {
-                        console.log('Retrying connection...');
-                        await new Promise(resolve => setTimeout(resolve, 2000));
-                        return verifyConnection(retryCount + 1);
-                    }
-                    
-                    if (!snapshot.val()) {
-                        throw new Error('Database connection failed');
-                    }
-                } catch (error) {
-                    console.error('Database connection test failed:', error);
-                    window.dbConnected = false;
-                    if (window.formApp) {
-                        window.formApp.showMessage('Failed to connect to database. Please check your internet connection.', 'danger');
-                        window.formApp.updateConnectionStatus('error');
-                    }
-                }
-            };
-
-            await verifyConnection();
+            window.dbConnected = false; // Start with false until verified
 
         } catch (error) {
             console.error('Firebase initialization error:', error);
