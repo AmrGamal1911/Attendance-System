@@ -21,8 +21,8 @@
     </script>
 
     <script type="module">
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
-        import { getDatabase, ref, set, onValue, push, serverTimestamp, off, get } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
+        import { initializeApp, getApps } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
+        import { getDatabase, ref, onValue, push, off, set, get, serverTimestamp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
 
         try {
             const firebaseConfig = {
@@ -36,37 +36,113 @@
                 measurementId: "G-D2WNX8RGRL"
             };
 
-            const app = initializeApp(firebaseConfig);
+            // Initialize Firebase app if not already initialized
+            let app;
+            const apps = getApps();
+            if (apps.length === 0) {
+                app = initializeApp(firebaseConfig);
+            } else {
+                app = apps[0];
+            }
+
             const database = getDatabase(app);
 
-            // Test database connection
-            const testRef = ref(database, '.info/connected');
-            onValue(testRef, (snapshot) => {
-                const connected = snapshot.val();
-                if (!connected) {
-                    console.error('Firebase connection lost');
+            // Set up persistent connection monitoring with retry
+            const setupConnectionMonitoring = () => {
+                const connectedRef = ref(database, '.info/connected');
+                onValue(connectedRef, (snapshot) => {
+                    const connected = snapshot.val();
                     if (window.app) {
-                        window.app.showMessage('Connection lost. Please check your internet connection.', 'danger');
+                        if (!connected) {
+                            console.error('Firebase connection lost');
+                            window.app.handleConnectionLost();
+                        } else {
+                            window.app.handleConnectionRestored();
+                        }
                     }
-                }
-            });
+                }, (error) => {
+                    console.error('Connection monitoring error:', error);
+                    // Retry connection monitoring after delay
+                    setTimeout(setupConnectionMonitoring, 5000);
+                });
+            };
 
-            // Assign to window only after successful initialization
+            setupConnectionMonitoring();
+
+            // Assign to window with connection state
             window.database = database;
             window.dbRef = ref;
             window.dbSet = set;
             window.dbOnValue = onValue;
             window.dbPush = push;
-            window.dbServerTimestamp = serverTimestamp;
             window.dbOff = off;
             window.dbGet = get;
+            window.dbServerTimestamp = serverTimestamp;
+            window.dbConnected = true;
+
+            // Verify database connection
+            const testRef = ref(database, '.info/connected');
+            get(testRef).then(snapshot => {
+                if (!snapshot.val()) {
+                    throw new Error('Database connection failed');
+                }
+            }).catch(error => {
+                console.error('Database connection test failed:', error);
+                window.dbConnected = false;
+                if (window.app) {
+                    window.app.showMessage('Failed to connect to database. Please check your internet connection.', 'danger');
+                    window.app.updateConnectionStatus('error');
+                }
+            });
 
         } catch (error) {
             console.error('Firebase initialization error:', error);
+            window.dbConnected = false;
             if (window.app) {
                 window.app.showMessage('Failed to initialize Firebase. Please refresh the page.', 'danger');
+                window.app.updateConnectionStatus('error');
             }
         }
+    </script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const uploadForm = document.getElementById('uploadForm');
+            if (uploadForm) {
+                uploadForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    app.handleRosterUpload(e);
+                });
+            }
+
+            const sessionForm = document.getElementById('sessionForm');
+            if (sessionForm) {
+                sessionForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    app.createSession();
+                });
+            }
+
+            app.init();
+            
+            // Add cleanup handlers
+            window.addEventListener('beforeunload', function() {
+                app.cleanup();
+            });
+            
+            window.addEventListener('unload', function() {
+                app.cleanup();
+            });
+            
+            // Handle visibility change
+            document.addEventListener('visibilitychange', function() {
+                if (document.hidden) {
+                    app.handlePageHidden();
+                } else {
+                    app.handlePageVisible();
+                }
+            });
+        });
     </script>
     
     <style>
@@ -977,6 +1053,27 @@
             selectedLocation: null,
 
             init: function() {
+                // First try to restore any saved state
+                this.restoreState();
+
+                if (!window.database || !window.dbRef || !window.dbGet) {
+                    console.error('Firebase not initialized properly');
+                    this.showMessage('Failed to initialize connection. Please refresh the page.', 'danger');
+                    this.updateConnectionStatus('error');
+                    return;
+                }
+
+                // Set connection timeout
+                this.connectionTimeout = setTimeout(() => {
+                    if (!this.initialized) {
+                        this.showMessage('Connection timeout. Please refresh the page.', 'danger');
+                        this.updateConnectionStatus('error');
+                    }
+                }, 15000);
+
+                // Initialize Firebase and start loading sessions
+                this.initializeFirebase();
+
                 localStorage.setItem('deviceId', this.deviceId);
                 this.setupDragAndDrop();
                 
@@ -992,7 +1089,6 @@
                 
                 this.initVoiceCommands();
                 this.loadSessionHistory();
-                this.initializeApp();
             },
 
             initMap: function() {
@@ -2290,6 +2386,130 @@
                 } catch (error) {
                     console.error('Error setting up listeners:', error);
                     this.showMessage('Failed to set up session monitoring. Please refresh the page.', 'danger');
+                }
+            },
+
+            handleConnectionLost: function() {
+                this.showMessage('Connection lost. Please check your internet connection.', 'danger');
+                this.updateConnectionStatus('error');
+                
+                // Clear any existing reconnection attempt
+                if (this.reconnectionTimeout) {
+                    clearTimeout(this.reconnectionTimeout);
+                }
+                
+                // Try to reconnect after delay
+                this.reconnectionTimeout = setTimeout(() => {
+                    this.attemptReconnection();
+                }, 5000);
+
+                // Save current state
+                this.saveState();
+            },
+
+            handleConnectionRestored: function() {
+                this.updateConnectionStatus('connected');
+                this.showMessage('Connection restored!', 'success');
+                
+                // Clear any pending reconnection attempts
+                if (this.reconnectionTimeout) {
+                    clearTimeout(this.reconnectionTimeout);
+                    this.reconnectionTimeout = null;
+                }
+                
+                // Restore state and verify session
+                this.restoreState();
+                this.verifySessionState();
+            },
+
+            attemptReconnection: async function() {
+                if (!window.dbConnected) {
+                    this.showMessage('Still trying to reconnect...', 'info');
+                    this.updateConnectionStatus('connecting');
+                    
+                    // Test database connection
+                    try {
+                        const testRef = window.dbRef(window.database, '.info/connected');
+                        const snapshot = await window.dbGet(testRef);
+                        if (snapshot.val()) {
+                            window.dbConnected = true;
+                            this.handleConnectionRestored();
+                            return;
+                        }
+                    } catch (error) {
+                        console.error('Connection test failed:', error);
+                    }
+                    
+                    // Schedule another attempt
+                    this.reconnectionTimeout = setTimeout(() => {
+                        this.attemptReconnection();
+                    }, 5000);
+                    return;
+                }
+                
+                try {
+                    // Verify sessions are still valid
+                    await this.refreshSessions();
+                    this.updateConnectionStatus('connected');
+                } catch (error) {
+                    console.error('Reconnection failed:', error);
+                    // Schedule another attempt
+                    this.reconnectionTimeout = setTimeout(() => {
+                        this.attemptReconnection();
+                    }, 5000);
+                }
+            },
+
+            saveState: function() {
+                try {
+                    const state = {
+                        currentSession: this.currentSession,
+                        sessions: this.sessions,
+                        timestamp: Date.now()
+                    };
+                    sessionStorage.setItem('dashboardState', JSON.stringify(state));
+                } catch (error) {
+                    console.error('Failed to save state:', error);
+                }
+            },
+
+            restoreState: function() {
+                try {
+                    const stateStr = sessionStorage.getItem('dashboardState');
+                    if (stateStr) {
+                        const state = JSON.parse(stateStr);
+                        // Only restore if state is less than 5 minutes old
+                        if (Date.now() - state.timestamp < 300000) {
+                            this.currentSession = state.currentSession;
+                            this.sessions = state.sessions;
+                            return true;
+                        }
+                        sessionStorage.removeItem('dashboardState');
+                    }
+                } catch (error) {
+                    console.error('Failed to restore state:', error);
+                }
+                return false;
+            },
+
+            verifySessionState: async function() {
+                try {
+                    await this.refreshSessions();
+                    if (this.currentSession) {
+                        const sessionRef = window.dbRef(window.database, `sessions/${this.currentSession.id}`);
+                        const snapshot = await window.dbGet(sessionRef);
+                        const sessionData = snapshot.val();
+                        
+                        if (!sessionData) {
+                            this.currentSession = null;
+                        } else {
+                            this.currentSession = { id: this.currentSession.id, ...sessionData };
+                        }
+                    }
+                    this.updateUI();
+                } catch (error) {
+                    console.error('Failed to verify session state:', error);
+                    this.showMessage('Failed to verify sessions. Please refresh the page.', 'danger');
                 }
             }
         };
