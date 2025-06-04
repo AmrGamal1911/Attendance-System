@@ -8,44 +8,53 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
     <script type="module">
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
-        import { getDatabase, ref, onValue, push, off, set, get } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
+        import { initializeApp, getApps } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
+        import { getDatabase, ref, onValue, push, off, set, get, serverTimestamp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
 
         try {
+            const firebaseConfig = {
+                apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
+                authDomain: "eelu-attendance.firebaseapp.com",
+                databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
+                projectId: "eelu-attendance",
+                storageBucket: "eelu-attendance.appspot.com",
+                messagingSenderId: "5132239076",
+                appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
+                measurementId: "G-D2WNX8RGRL"
+            };
+
+            // Initialize Firebase app if not already initialized
             let app;
-            try {
-                // Try to get existing Firebase app
-                app = firebase.app();
-            } catch (e) {
-                // Initialize new Firebase app if none exists
-                const firebaseConfig = {
-                    apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
-                    authDomain: "eelu-attendance.firebaseapp.com",
-                    databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
-                    projectId: "eelu-attendance",
-                    storageBucket: "eelu-attendance.appspot.com",
-                    messagingSenderId: "5132239076",
-                    appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
-                    measurementId: "G-D2WNX8RGRL"
-                };
+            const apps = getApps();
+            if (apps.length === 0) {
                 app = initializeApp(firebaseConfig);
+            } else {
+                app = apps[0];
             }
 
             const database = getDatabase(app);
 
-            // Set up persistent connection monitoring
-            const connectedRef = ref(database, '.info/connected');
-            onValue(connectedRef, (snapshot) => {
-                const connected = snapshot.val();
-                if (window.formApp) {
-                    if (!connected) {
-                        console.error('Firebase connection lost');
-                        window.formApp.handleConnectionLost();
-                    } else {
-                        window.formApp.handleConnectionRestored();
+            // Set up persistent connection monitoring with retry
+            const setupConnectionMonitoring = () => {
+                const connectedRef = ref(database, '.info/connected');
+                onValue(connectedRef, (snapshot) => {
+                    const connected = snapshot.val();
+                    if (window.formApp) {
+                        if (!connected) {
+                            console.error('Firebase connection lost');
+                            window.formApp.handleConnectionLost();
+                        } else {
+                            window.formApp.handleConnectionRestored();
+                        }
                     }
-                }
-            });
+                }, (error) => {
+                    console.error('Connection monitoring error:', error);
+                    // Retry connection monitoring after delay
+                    setTimeout(setupConnectionMonitoring, 5000);
+                });
+            };
+
+            setupConnectionMonitoring();
 
             // Assign to window with connection state
             window.database = database;
@@ -55,7 +64,23 @@
             window.dbPush = push;
             window.dbOff = off;
             window.dbGet = get;
+            window.dbServerTimestamp = serverTimestamp;
             window.dbConnected = true;
+
+            // Verify database connection
+            const testRef = ref(database, '.info/connected');
+            get(testRef).then(snapshot => {
+                if (!snapshot.val()) {
+                    throw new Error('Database connection failed');
+                }
+            }).catch(error => {
+                console.error('Database connection test failed:', error);
+                window.dbConnected = false;
+                if (window.formApp) {
+                    window.formApp.showMessage('Failed to connect to database. Please check your internet connection.', 'danger');
+                    window.formApp.updateConnectionStatus('error');
+                }
+            });
 
         } catch (error) {
             console.error('Firebase initialization error:', error);
@@ -430,6 +455,9 @@
             reconnectionTimeout: null,
 
             init: function() {
+                // First try to restore any saved state
+                this.restoreState();
+
                 if (!window.database || !window.dbRef || !window.dbGet) {
                     console.error('Firebase not initialized properly');
                     this.showMessage('Failed to initialize connection. Please refresh the page.', 'danger');
@@ -437,7 +465,10 @@
                     return;
                 }
 
-                this.currentSessionId = new URLSearchParams(window.location.search).get('session');
+                // Get session ID from URL if not restored from state
+                if (!this.currentSessionId) {
+                    this.currentSessionId = new URLSearchParams(window.location.search).get('session');
+                }
                 
                 if (!this.currentSessionId) {
                     this.showMessage('Invalid session', 'danger');
@@ -908,6 +939,9 @@
                 this.reconnectionTimeout = setTimeout(() => {
                     this.attemptReconnection();
                 }, 5000);
+
+                // Save current state
+                this.saveState();
             },
 
             handleConnectionRestored: function() {
@@ -920,7 +954,8 @@
                     this.reconnectionTimeout = null;
                 }
                 
-                // Verify and restore session state
+                // Restore state and verify session
+                this.restoreState();
                 this.verifySessionState();
             },
 
@@ -928,6 +963,19 @@
                 if (!window.dbConnected) {
                     this.showMessage('Still trying to reconnect...', 'info');
                     this.updateConnectionStatus('connecting');
+                    
+                    // Test database connection
+                    try {
+                        const testRef = window.dbRef(window.database, '.info/connected');
+                        const snapshot = await window.dbGet(testRef);
+                        if (snapshot.val()) {
+                            window.dbConnected = true;
+                            this.handleConnectionRestored();
+                            return;
+                        }
+                    } catch (error) {
+                        console.error('Connection test failed:', error);
+                    }
                     
                     // Schedule another attempt
                     this.reconnectionTimeout = setTimeout(() => {
@@ -958,6 +1006,40 @@
                         this.attemptReconnection();
                     }, 5000);
                 }
+            },
+
+            saveState: function() {
+                if (this.sessionData) {
+                    try {
+                        const state = {
+                            sessionId: this.currentSessionId,
+                            token: this.currentToken,
+                            timestamp: Date.now()
+                        };
+                        sessionStorage.setItem('formState', JSON.stringify(state));
+                    } catch (error) {
+                        console.error('Failed to save state:', error);
+                    }
+                }
+            },
+
+            restoreState: function() {
+                try {
+                    const stateStr = sessionStorage.getItem('formState');
+                    if (stateStr) {
+                        const state = JSON.parse(stateStr);
+                        // Only restore if state is less than 5 minutes old
+                        if (Date.now() - state.timestamp < 300000) {
+                            this.currentSessionId = state.sessionId;
+                            this.currentToken = state.token;
+                            return true;
+                        }
+                        sessionStorage.removeItem('formState');
+                    }
+                } catch (error) {
+                    console.error('Failed to restore state:', error);
+                }
+                return false;
             },
 
             verifySessionState: async function() {
@@ -1027,6 +1109,14 @@
         };
 
         document.addEventListener('DOMContentLoaded', function() {
+            const form = document.getElementById('attendanceForm');
+            if (form) {
+                form.addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    await formApp.submitAttendance();
+                });
+            }
+
             formApp.init();
             
             // Add cleanup handlers
@@ -1041,10 +1131,8 @@
             // Handle visibility change
             document.addEventListener('visibilitychange', function() {
                 if (document.hidden) {
-                    // Page is hidden
                     formApp.handlePageHidden();
                 } else {
-                    // Page is visible again
                     formApp.handlePageVisible();
                 }
             });
