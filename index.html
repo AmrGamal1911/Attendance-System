@@ -24,26 +24,49 @@
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
         import { getDatabase, ref, set, onValue, push, serverTimestamp, off, get } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
-            authDomain: "eelu-attendance.firebaseapp.com",
-            databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
-            projectId: "eelu-attendance",
-            storageBucket: "eelu-attendance.appspot.com",
-            messagingSenderId: "5132239076",
-            appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
-            measurementId: "G-D2WNX8RGRL"
-        };
+        try {
+            const firebaseConfig = {
+                apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
+                authDomain: "eelu-attendance.firebaseapp.com",
+                databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
+                projectId: "eelu-attendance",
+                storageBucket: "eelu-attendance.appspot.com",
+                messagingSenderId: "5132239076",
+                appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
+                measurementId: "G-D2WNX8RGRL"
+            };
 
-        const app = initializeApp(firebaseConfig);
-        window.database = getDatabase(app);
-        window.dbRef = ref;
-        window.dbSet = set;
-        window.dbOnValue = onValue;
-        window.dbPush = push;
-        window.dbServerTimestamp = serverTimestamp;
-        window.dbOff = off;
-        window.dbGet = get;
+            const app = initializeApp(firebaseConfig);
+            const database = getDatabase(app);
+
+            // Test database connection
+            const testRef = ref(database, '.info/connected');
+            onValue(testRef, (snapshot) => {
+                const connected = snapshot.val();
+                if (!connected) {
+                    console.error('Firebase connection lost');
+                    if (window.app) {
+                        window.app.showMessage('Connection lost. Please check your internet connection.', 'danger');
+                    }
+                }
+            });
+
+            // Assign to window only after successful initialization
+            window.database = database;
+            window.dbRef = ref;
+            window.dbSet = set;
+            window.dbOnValue = onValue;
+            window.dbPush = push;
+            window.dbServerTimestamp = serverTimestamp;
+            window.dbOff = off;
+            window.dbGet = get;
+
+        } catch (error) {
+            console.error('Firebase initialization error:', error);
+            if (window.app) {
+                window.app.showMessage('Failed to initialize Firebase. Please refresh the page.', 'danger');
+            }
+        }
     </script>
     
     <style>
@@ -2121,12 +2144,19 @@
 
             createSession: async function() {
                 try {
+                    // Verify Firebase connection
+                    if (!window.database || !window.dbRef || !window.dbSet) {
+                        this.showMessage('Database connection not ready. Please refresh the page.', 'danger');
+                        return;
+                    }
+
                     const subject = document.getElementById('subject').value.trim();
                     const week = document.getElementById('week').value.trim();
                     const maxAttendees = parseInt(document.getElementById('maxAttendees').value);
                     const password = document.getElementById('password').value.trim();
+                    const taEmail = document.getElementById('ta_email').value.trim();
                     
-                    if (!subject || !week || isNaN(maxAttendees) || maxAttendees <= 0) {
+                    if (!subject || !week || isNaN(maxAttendees) || maxAttendees <= 0 || !taEmail) {
                         this.showMessage('Please fill all required fields correctly', 'danger');
                         return;
                     }
@@ -2147,36 +2177,48 @@
                         createdAt: window.dbServerTimestamp(),
                         availableTokens: tokens,
                         usedTokens: {},
-                        attendees: {}
+                        attendees: {},
+                        taEmail: taEmail
                     };
 
-                    // Get a new session reference
-                    const newSessionRef = window.dbPush(this.sessionsRef);
-                    const sessionId = newSessionRef.key;
+                    // Get a new session reference with timeout
+                    try {
+                        const newSessionRef = window.dbPush(this.sessionsRef);
+                        const sessionId = newSessionRef.key;
 
-                    // Save session data
-                    await window.dbSet(newSessionRef, sessionData);
+                        // Save session data with timeout
+                        await Promise.race([
+                            window.dbSet(newSessionRef, sessionData),
+                            new Promise((_, reject) => 
+                                setTimeout(() => reject(new Error('Connection timeout')), 10000)
+                            )
+                        ]);
 
-                    // Generate QR code and link
-                    const sessionUrl = `${window.location.origin}/form.html?session=${sessionId}`;
-                    const qr = new QRCode(document.getElementById("qrcode"), {
-                        text: sessionUrl,
-                        width: 256,
-                        height: 256,
-                        colorDark: "#000000",
-                        colorLight: "#ffffff",
-                        correctLevel: QRCode.CorrectLevel.H
-                    });
+                        // Generate QR code and link
+                        const sessionUrl = `${window.location.origin}/form.html?session=${sessionId}`;
+                        const qr = new QRCode(document.getElementById("qrcode"), {
+                            text: sessionUrl,
+                            width: 256,
+                            height: 256,
+                            colorDark: "#000000",
+                            colorLight: "#ffffff",
+                            correctLevel: QRCode.CorrectLevel.H
+                        });
 
-                    // Show session info
-                    document.getElementById('sessionLink').value = sessionUrl;
-                    document.getElementById('sessionId').textContent = sessionId;
-                    document.getElementById('createSection').classList.add('hidden');
-                    document.getElementById('activeSection').classList.remove('hidden');
+                        // Show session info
+                        document.getElementById('sessionLink').value = sessionUrl;
+                        document.getElementById('sessionId').textContent = sessionId;
+                        document.getElementById('createSection').classList.add('hidden');
+                        document.getElementById('activeSection').classList.remove('hidden');
 
-                    // Set up session listeners
-                    this.setupSessionListeners(sessionId);
-                    this.showMessage('Session created successfully!', 'success');
+                        // Set up session listeners
+                        this.setupSessionListeners(sessionId);
+                        this.showMessage('Session created successfully!', 'success');
+
+                    } catch (error) {
+                        console.error('Error saving session:', error);
+                        this.showMessage('Failed to create session. Please check your connection and try again.', 'danger');
+                    }
 
                 } catch (error) {
                     console.error('Error creating session:', error);
@@ -2194,49 +2236,61 @@
             },
 
             setupSessionListeners: function(sessionId) {
-                // Remove any existing listeners
-                if (this.currentSessionRef) {
-                    window.dbOff(this.currentSessionRef);
-                }
-                if (this.currentAttendeesRef) {
-                    window.dbOff(this.currentAttendeesRef);
-                }
-
-                // Set up new listeners
-                this.currentSessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
-                this.currentAttendeesRef = window.dbRef(window.database, `sessions/${sessionId}/attendees`);
-
-                // Listen for session changes
-                window.dbOnValue(this.currentSessionRef, (snapshot) => {
-                    const data = snapshot.val();
-                    if (!data) return;
-
-                    // Update session info
-                    document.getElementById('displaySubject').textContent = data.subject;
-                    document.getElementById('displayWeek').textContent = data.week;
-                    document.getElementById('displayMaxAttendees').textContent = data.maxAttendees;
-                    
-                    const availableCount = data.availableTokens ? data.availableTokens.length : 0;
-                    document.getElementById('availableSlots').textContent = availableCount;
-                    
-                    const usedCount = data.usedTokens ? Object.keys(data.usedTokens).length : 0;
-                    document.getElementById('usedSlots').textContent = usedCount;
-
-                    // Update session status
-                    if (!data.active) {
-                        document.getElementById('sessionStatus').textContent = 'Closed';
-                        document.getElementById('sessionStatus').className = 'status-closed';
-                    } else {
-                        document.getElementById('sessionStatus').textContent = 'Active';
-                        document.getElementById('sessionStatus').className = 'status-active';
+                try {
+                    // Remove any existing listeners
+                    if (this.currentSessionRef) {
+                        window.dbOff(this.currentSessionRef);
                     }
-                });
+                    if (this.currentAttendeesRef) {
+                        window.dbOff(this.currentAttendeesRef);
+                    }
 
-                // Listen for attendee changes
-                window.dbOnValue(this.currentAttendeesRef, (snapshot) => {
-                    const attendees = snapshot.val() || {};
-                    this.updateAttendeeTable(attendees);
-                });
+                    // Set up new listeners
+                    this.currentSessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
+                    this.currentAttendeesRef = window.dbRef(window.database, `sessions/${sessionId}/attendees`);
+
+                    // Listen for session changes with error handling
+                    window.dbOnValue(this.currentSessionRef, (snapshot) => {
+                        const data = snapshot.val();
+                        if (!data) return;
+
+                        // Update session info
+                        document.getElementById('displaySubject').textContent = data.subject;
+                        document.getElementById('displayWeek').textContent = data.week;
+                        document.getElementById('displayMaxAttendees').textContent = data.maxAttendees;
+                        
+                        const availableCount = data.availableTokens ? data.availableTokens.length : 0;
+                        document.getElementById('availableSlots').textContent = availableCount;
+                        
+                        const usedCount = data.usedTokens ? Object.keys(data.usedTokens).length : 0;
+                        document.getElementById('usedSlots').textContent = usedCount;
+
+                        // Update session status
+                        if (!data.active) {
+                            document.getElementById('sessionStatus').textContent = 'Closed';
+                            document.getElementById('sessionStatus').className = 'status-closed';
+                        } else {
+                            document.getElementById('sessionStatus').textContent = 'Active';
+                            document.getElementById('sessionStatus').className = 'status-active';
+                        }
+                    }, (error) => {
+                        console.error('Session listener error:', error);
+                        this.showMessage('Connection error. Please refresh the page.', 'danger');
+                    });
+
+                    // Listen for attendee changes with error handling
+                    window.dbOnValue(this.currentAttendeesRef, (snapshot) => {
+                        const attendees = snapshot.val() || {};
+                        this.updateAttendeeTable(attendees);
+                    }, (error) => {
+                        console.error('Attendees listener error:', error);
+                        this.showMessage('Error updating attendee list. Please refresh the page.', 'danger');
+                    });
+
+                } catch (error) {
+                    console.error('Error setting up listeners:', error);
+                    this.showMessage('Failed to set up session monitoring. Please refresh the page.', 'danger');
+                }
             }
         };
 
