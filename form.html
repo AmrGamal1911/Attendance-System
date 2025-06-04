@@ -520,7 +520,7 @@
                 }
 
                 if (!this.currentToken) {
-                    this.showMessage('Invalid token. Please scan the QR code again.', 'danger');
+                    this.showMessage('Invalid or missing token. Please scan the QR code again.', 'danger');
                     return;
                 }
 
@@ -543,19 +543,45 @@
                 };
                 const deviceHash = this.hashCode(JSON.stringify(deviceData));
 
-                // Check if token is still available
-                const sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
-                const sessionSnap = await window.dbGet(sessionRef);
-                const sessionData = sessionSnap.val();
-
-                if (!sessionData.availableTokens.includes(this.currentToken)) {
-                    this.showMessage('This token has already been used. Please scan the QR code again.', 'danger');
-                    return;
-                }
-
-                const currentIP = await fetch('https://api.ipify.org?format=json').then(r => r.json()).then(data => data.ip).catch(() => 'unknown');
-
                 try {
+                    // First verify if the token is still valid
+                    const sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
+                    const sessionSnap = await window.dbGet(sessionRef);
+                    const sessionData = sessionSnap.val();
+
+                    if (!sessionData || !sessionData.active) {
+                        this.showMessage('This session is no longer active', 'danger');
+                        this.showClosedSession();
+                        return;
+                    }
+
+                    if (!sessionData.availableTokens.includes(this.currentToken)) {
+                        this.showMessage('This token has already been used or is invalid. Please scan the QR code again.', 'danger');
+                        return;
+                    }
+
+                    const currentIP = await fetch('https://api.ipify.org?format=json')
+                        .then(r => r.json())
+                        .then(data => data.ip)
+                        .catch(() => 'unknown');
+
+                    // Check if student exists in roster
+                    const student = sessionData.roster.find(s => s.id.toUpperCase() === studentId);
+                    if (!student) {
+                        this.showMessage('Student ID not found in roster', 'danger');
+                        return;
+                    }
+
+                    // Check if student already submitted attendance
+                    const attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
+                    const attendeesSnap = await window.dbGet(attendeesRef);
+                    const attendees = attendeesSnap.val() || {};
+                    
+                    if (Object.values(attendees).some(a => a.id.toUpperCase() === studentId)) {
+                        this.showMessage('Attendance already recorded for this student', 'danger');
+                        return;
+                    }
+
                     // Remove token from available tokens and add to used tokens
                     const updatedAvailableTokens = sessionData.availableTokens.filter(t => t !== this.currentToken);
                     const usedTokenData = {
@@ -567,36 +593,7 @@
                         used: true
                     };
 
-                    // Update session data atomically
-                    const updates = {
-                        [`sessions/${this.currentSessionId}/availableTokens`]: updatedAvailableTokens,
-                        [`sessions/${this.currentSessionId}/usedTokens/${this.currentToken}`]: usedTokenData
-                    };
-
-                    await window.dbSet(window.dbRef(window.database), updates);
-
-                    const attendeeSnap = await window.dbGet(this.attendeesRef);
-                    const attendees = attendeeSnap.val() || {};
-                    const attendeeList = Object.values(attendees);
-                    
-                    if (attendeeList.length >= this.sessionData.maxAttendees) {
-                        this.showMessage('This session is full', 'danger');
-                        return;
-                    }
-                    
-                    const student = this.sessionData.roster ? 
-                        this.sessionData.roster.find(s => s.id.toUpperCase() === studentId) : null;
-                    
-                    if (!student) {
-                        this.showMessage('Student ID not found in roster', 'danger');
-                        return;
-                    }
-                    
-                    if (attendeeList.some(a => a.id.toUpperCase() === studentId)) {
-                        this.showMessage('Attendance already recorded for this student', 'danger');
-                        return;
-                    }
-
+                    // Prepare the attendance record
                     const newAttendee = {
                         id: student.id,
                         name: student.name,
@@ -605,10 +602,21 @@
                         ip: currentIP,
                         token: this.currentToken,
                         deviceHash: deviceHash,
-                        isFromTaIp: currentIP === this.sessionData.taIpAddress
+                        isFromTaIp: currentIP === sessionData.taIpAddress
                     };
-                    
-                    await window.dbPush(this.attendeesRef, newAttendee);
+
+                    // Update everything atomically
+                    const updates = {
+                        [`sessions/${this.currentSessionId}/availableTokens`]: updatedAvailableTokens,
+                        [`sessions/${this.currentSessionId}/usedTokens/${this.currentToken}`]: usedTokenData
+                    };
+
+                    // Add the attendance record
+                    const newAttendeeRef = window.dbPush(attendeesRef);
+                    updates[`sessions/${this.currentSessionId}/attendees/${newAttendeeRef.key}`] = newAttendee;
+
+                    // Perform the atomic update
+                    await window.dbSet(window.dbRef(window.database), updates);
                     
                     this.showMessage(`Attendance recorded successfully for ${student.name}!`, 'success');
                     document.getElementById('student_id').value = '';
