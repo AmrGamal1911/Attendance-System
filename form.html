@@ -12,34 +12,42 @@
         import { getDatabase, ref, onValue, push, off, set, get } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
 
         try {
-            const firebaseConfig = {
-                apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
-                authDomain: "eelu-attendance.firebaseapp.com",
-                databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
-                projectId: "eelu-attendance",
-                storageBucket: "eelu-attendance.appspot.com",
-                messagingSenderId: "5132239076",
-                appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
-                measurementId: "G-D2WNX8RGRL"
-            };
+            let app;
+            try {
+                // Try to get existing Firebase app
+                app = firebase.app();
+            } catch (e) {
+                // Initialize new Firebase app if none exists
+                const firebaseConfig = {
+                    apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
+                    authDomain: "eelu-attendance.firebaseapp.com",
+                    databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
+                    projectId: "eelu-attendance",
+                    storageBucket: "eelu-attendance.appspot.com",
+                    messagingSenderId: "5132239076",
+                    appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
+                    measurementId: "G-D2WNX8RGRL"
+                };
+                app = initializeApp(firebaseConfig);
+            }
 
-            const app = initializeApp(firebaseConfig);
             const database = getDatabase(app);
 
-            // Test database connection
-            const testRef = ref(database, '.info/connected');
-            onValue(testRef, (snapshot) => {
+            // Set up persistent connection monitoring
+            const connectedRef = ref(database, '.info/connected');
+            onValue(connectedRef, (snapshot) => {
                 const connected = snapshot.val();
-                if (!connected) {
-                    console.error('Firebase connection lost');
-                    if (window.formApp) {
-                        window.formApp.showMessage('Connection lost. Please check your internet connection.', 'danger');
-                        window.formApp.updateConnectionStatus('error');
+                if (window.formApp) {
+                    if (!connected) {
+                        console.error('Firebase connection lost');
+                        window.formApp.handleConnectionLost();
+                    } else {
+                        window.formApp.handleConnectionRestored();
                     }
                 }
             });
 
-            // Assign to window only after successful initialization
+            // Assign to window with connection state
             window.database = database;
             window.dbRef = ref;
             window.dbSet = set;
@@ -47,10 +55,11 @@
             window.dbPush = push;
             window.dbOff = off;
             window.dbGet = get;
+            window.dbConnected = true;
 
         } catch (error) {
             console.error('Firebase initialization error:', error);
-            // Show error message if formApp is available
+            window.dbConnected = false;
             if (window.formApp) {
                 window.formApp.showMessage('Failed to initialize Firebase. Please refresh the page.', 'danger');
                 window.formApp.updateConnectionStatus('error');
@@ -418,6 +427,7 @@
             currentToken: null,
             initialLoadTime: null,
             connectionTimeout: null,
+            reconnectionTimeout: null,
 
             init: function() {
                 if (!window.database || !window.dbRef || !window.dbGet) {
@@ -511,8 +521,14 @@
 
             async requestNewToken() {
                 try {
-                    // Get fresh session data
-                    const sessionSnap = await window.dbGet(this.sessionRef);
+                    // Get fresh session data with timeout
+                    const sessionSnap = await Promise.race([
+                        window.dbGet(this.sessionRef),
+                        new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('Connection timeout')), 10000)
+                        )
+                    ]);
+                    
                     const sessionData = sessionSnap.val();
 
                     if (!sessionData || !sessionData.active) {
@@ -528,32 +544,51 @@
                         return false;
                     }
 
-                    // Get a token from the available pool
+                    // Try to claim a token with transaction
                     const token = sessionData.availableTokens[0];
                     const updatedTokens = sessionData.availableTokens.slice(1);
 
-                    // Update the available tokens atomically
-                    const updates = {
-                        [`sessions/${this.currentSessionId}/availableTokens`]: updatedTokens
-                    };
+                    // Update tokens atomically at the session level
+                    try {
+                        await window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/availableTokens`), updatedTokens);
+                        
+                        // Verify the token was claimed successfully
+                        const verifySnap = await window.dbGet(this.sessionRef);
+                        const verifyData = verifySnap.val();
+                        
+                        if (!verifyData || verifyData.availableTokens.includes(token)) {
+                            throw new Error('Token claim verification failed');
+                        }
 
-                    // Perform the atomic update
-                    await window.dbSet(window.dbRef(window.database), updates);
+                        // Store token and show form
+                        this.currentToken = token;
+                        this.sessionData = sessionData;
+                        clearTimeout(this.connectionTimeout);
+                        this.showActiveSession();
+                        this.updateConnectionStatus('connected');
+                        
+                        if (this.sessionData.password) {
+                            document.getElementById('passwordField').classList.remove('hidden');
+                        }
 
-                    // Store token and show form
-                    this.currentToken = token;
-                    clearTimeout(this.connectionTimeout);
-                    this.showActiveSession();
-                    this.updateConnectionStatus('connected');
-                    
-                    if (this.sessionData.password) {
-                        document.getElementById('passwordField').classList.remove('hidden');
+                        // Set up session listeners
+                        this.setupSessionListeners();
+
+                        return true;
+
+                    } catch (error) {
+                        console.error('Token claim failed:', error);
+                        // Try to restore the token if something went wrong
+                        try {
+                            await window.dbSet(
+                                window.dbRef(window.database, `sessions/${this.currentSessionId}/availableTokens`),
+                                sessionData.availableTokens
+                            );
+                        } catch (restoreError) {
+                            console.error('Failed to restore token:', restoreError);
+                        }
+                        throw error;
                     }
-
-                    // Set up session listeners
-                    this.setupSessionListeners();
-
-                    return true;
 
                 } catch (error) {
                     console.error('Error requesting token:', error);
@@ -682,8 +717,9 @@
                         return;
                     }
 
-                    if (!sessionData.availableTokens.includes(this.currentToken)) {
-                        this.showMessage('This token has already been used or is invalid. Please scan the QR code again.', 'danger');
+                    // Check if token has been used
+                    if (sessionData.usedTokens && sessionData.usedTokens[this.currentToken]) {
+                        this.showMessage('This token has already been used. Please scan the QR code again.', 'danger');
                         return;
                     }
 
@@ -709,17 +745,6 @@
                         return;
                     }
 
-                    // Remove token from available tokens and add to used tokens
-                    const updatedAvailableTokens = sessionData.availableTokens.filter(t => t !== this.currentToken);
-                    const usedTokenData = {
-                        id: studentId,
-                        ip: currentIP,
-                        timestamp: Date.now(),
-                        deviceHash: deviceHash,
-                        deviceData: deviceData,
-                        used: true
-                    };
-
                     // Prepare the attendance record
                     const newAttendee = {
                         id: student.id,
@@ -729,13 +754,19 @@
                         ip: currentIP,
                         token: this.currentToken,
                         deviceHash: deviceHash,
+                        deviceData: deviceData,
                         isFromTaIp: currentIP === sessionData.taIpAddress
                     };
 
                     // Update everything atomically
                     const updates = {
-                        [`sessions/${this.currentSessionId}/availableTokens`]: updatedAvailableTokens,
-                        [`sessions/${this.currentSessionId}/usedTokens/${this.currentToken}`]: usedTokenData
+                        [`sessions/${this.currentSessionId}/usedTokens/${this.currentToken}`]: {
+                            id: studentId,
+                            ip: currentIP,
+                            timestamp: Date.now(),
+                            deviceHash: deviceHash,
+                            deviceData: deviceData
+                        }
                     };
 
                     // Add the attendance record
@@ -862,11 +893,161 @@
                     hash = hash & hash; // Convert to 32-bit integer
                 }
                 return Math.abs(hash).toString(36);
+            },
+
+            handleConnectionLost: function() {
+                this.showMessage('Connection lost. Please check your internet connection.', 'danger');
+                this.updateConnectionStatus('error');
+                
+                // Clear any existing reconnection attempt
+                if (this.reconnectionTimeout) {
+                    clearTimeout(this.reconnectionTimeout);
+                }
+                
+                // Try to reconnect after delay
+                this.reconnectionTimeout = setTimeout(() => {
+                    this.attemptReconnection();
+                }, 5000);
+            },
+
+            handleConnectionRestored: function() {
+                this.updateConnectionStatus('connected');
+                this.showMessage('Connection restored!', 'success');
+                
+                // Clear any pending reconnection attempts
+                if (this.reconnectionTimeout) {
+                    clearTimeout(this.reconnectionTimeout);
+                    this.reconnectionTimeout = null;
+                }
+                
+                // Verify and restore session state
+                this.verifySessionState();
+            },
+
+            attemptReconnection: async function() {
+                if (!window.dbConnected) {
+                    this.showMessage('Still trying to reconnect...', 'info');
+                    this.updateConnectionStatus('connecting');
+                    
+                    // Schedule another attempt
+                    this.reconnectionTimeout = setTimeout(() => {
+                        this.attemptReconnection();
+                    }, 5000);
+                    return;
+                }
+                
+                try {
+                    // Verify session is still valid
+                    const sessionSnap = await window.dbGet(this.sessionRef);
+                    const sessionData = sessionSnap.val();
+                    
+                    if (!sessionData || !sessionData.active) {
+                        this.showClosedSession();
+                        return;
+                    }
+                    
+                    // Restore session state
+                    this.sessionData = sessionData;
+                    this.setupSessionListeners();
+                    this.showActiveSession();
+                    
+                } catch (error) {
+                    console.error('Reconnection failed:', error);
+                    // Schedule another attempt
+                    this.reconnectionTimeout = setTimeout(() => {
+                        this.attemptReconnection();
+                    }, 5000);
+                }
+            },
+
+            verifySessionState: async function() {
+                try {
+                    // Get fresh session data
+                    const sessionSnap = await window.dbGet(this.sessionRef);
+                    const sessionData = sessionSnap.val();
+                    
+                    if (!sessionData || !sessionData.active) {
+                        this.showClosedSession();
+                        return;
+                    }
+                    
+                    // Check if our token is still valid
+                    if (this.currentToken) {
+                        if (sessionData.usedTokens && sessionData.usedTokens[this.currentToken]) {
+                            // Our token was used by someone else
+                            this.showMessage('Your session token was invalidated. Please refresh the page.', 'danger');
+                            this.currentToken = null;
+                            return;
+                        }
+                    }
+                    
+                    // Update session data and continue
+                    this.sessionData = sessionData;
+                    this.showActiveSession();
+                    
+                } catch (error) {
+                    console.error('Failed to verify session state:', error);
+                    this.showMessage('Failed to verify session state. Please refresh the page.', 'danger');
+                }
+            },
+
+            cleanup: function() {
+                // Clear all timeouts
+                if (this.connectionTimeout) clearTimeout(this.connectionTimeout);
+                if (this.reconnectionTimeout) clearTimeout(this.reconnectionTimeout);
+                
+                // Remove all listeners
+                if (this.sessionRef) window.dbOff(this.sessionRef);
+                if (this.attendeesRef) window.dbOff(this.attendeesRef);
+                
+                // Clear session data
+                this.sessionData = null;
+                this.currentToken = null;
+            },
+
+            handlePageHidden: function() {
+                // Page is hidden (tab switched, minimized, etc)
+                this.updateConnectionStatus('connecting');
+                
+                // Remove real-time listeners to save resources
+                if (this.sessionRef) window.dbOff(this.sessionRef);
+                if (this.attendeesRef) window.dbOff(this.attendeesRef);
+            },
+
+            handlePageVisible: function() {
+                // Page is visible again
+                if (!window.dbConnected) {
+                    this.handleConnectionLost();
+                    return;
+                }
+                
+                // Verify session state and restore listeners
+                this.verifySessionState();
             }
         };
 
         document.addEventListener('DOMContentLoaded', function() {
             formApp.init();
+            
+            // Add cleanup handlers
+            window.addEventListener('beforeunload', function() {
+                formApp.cleanup();
+            });
+            
+            window.addEventListener('unload', function() {
+                formApp.cleanup();
+            });
+            
+            // Handle visibility change
+            document.addEventListener('visibilitychange', function() {
+                if (document.hidden) {
+                    // Page is hidden
+                    formApp.handlePageHidden();
+                } else {
+                    // Page is visible again
+                    formApp.handlePageVisible();
+                }
+            });
         });
     </script>
 </body>
