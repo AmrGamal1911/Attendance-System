@@ -358,20 +358,6 @@
                         <input type="password" id="password" name="password" placeholder="Enter session password">
                     </div>
                     
-                    <div id="manualLocationInputs" class="form-group" style="display: none;">
-                        <label for="manualLatitude">
-                            <i class="fas fa-map-marker-alt"></i>
-                            Latitude
-                        </label>
-                        <input type="number" id="manualLatitude" step="any" placeholder="Enter latitude">
-                        
-                        <label for="manualLongitude">
-                            <i class="fas fa-map-marker-alt"></i>
-                            Longitude
-                        </label>
-                        <input type="number" id="manualLongitude" step="any" placeholder="Enter longitude">
-                    </div>
-                    
                     <button type="submit" class="btn" id="submitBtn">
                         <i class="fas fa-check-circle"></i> Submit Attendance
                     </button>
@@ -593,12 +579,10 @@
                     }
 
                     // Handle location check
-                    if (this.sessionData.useLocation) {
-                        const locationResult = await this.verifyLocation();
-                        if (!locationResult.success) {
-                            this.showMessage(locationResult.message, 'danger');
-                            return;
-                        }
+                    const locationResult = await this.verifyLocation();
+                    if (!locationResult.success) {
+                        this.showMessage(locationResult.message, 'danger');
+                        return;
                     }
 
                     // Record attendance
@@ -637,65 +621,59 @@
                         return;
                     }
 
-                    const handleLocation = (position) => {
-                        const studentLat = position.coords.latitude;
-                        const studentLng = position.coords.longitude;
-                        const classLat = this.sessionData.classLocation.lat;
-                        const classLng = this.sessionData.classLocation.lng;
-                        
-                        // Calculate distance
-                        const distance = this.calculateDistance(
-                            studentLat, studentLng,
-                            classLat, classLng
-                        );
-
-                        this.lastLocation = {
-                            latitude: studentLat,
-                            longitude: studentLng,
-                            accuracy: position.coords.accuracy,
-                            distance: distance
-                        };
-
-                        if (distance <= this.sessionData.locationDistance) {
-                            resolve({ 
-                                success: true,
-                                message: `Location verified (${distance.toFixed(0)}m from class)`
-                            });
-                        } else {
-                            resolve({ 
-                                success: false,
-                                message: `Too far from class location (${distance.toFixed(0)}m away, max ${this.sessionData.locationDistance}m)`
-                            });
-                        }
-                    };
-
-                    const handleError = (error) => {
-                        console.error('Location error:', error);
-                        this.locationAttempts++;
-                        
-                        if (this.locationAttempts >= this.maxLocationAttempts) {
-                            resolve({ 
-                                success: false,
-                                message: 'Could not verify location after multiple attempts'
-                            });
-                        } else {
-                            this.showMessage('Retrying location check...', 'info');
-                            this.getLocation();
-                        }
-                    };
-
-                    if (navigator.geolocation) {
-                        navigator.geolocation.getCurrentPosition(handleLocation, handleError, {
-                            enableHighAccuracy: true,
-                            timeout: 10000,
-                            maximumAge: 0
-                        });
-                    } else {
+                    if (!navigator.geolocation) {
                         resolve({ 
                             success: false,
                             message: 'Geolocation is not supported by your browser'
                         });
+                        return;
                     }
+
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            const studentLat = position.coords.latitude;
+                            const studentLng = position.coords.longitude;
+                            const classLat = this.sessionData.classLocation.lat;
+                            const classLng = this.sessionData.classLocation.lng;
+                            
+                            // Calculate distance
+                            const distance = this.calculateDistance(
+                                studentLat, studentLng,
+                                classLat, classLng
+                            );
+
+                            this.lastLocation = {
+                                latitude: studentLat,
+                                longitude: studentLng,
+                                accuracy: position.coords.accuracy,
+                                distance: distance
+                            };
+
+                            if (distance <= this.sessionData.locationDistance) {
+                                resolve({ 
+                                    success: true,
+                                    message: `Location verified (${distance.toFixed(0)}m from class)`
+                                });
+                            } else {
+                                resolve({ 
+                                    success: false,
+                                    message: `Too far from class location (${distance.toFixed(0)}m away, max ${this.sessionData.locationDistance}m)`
+                                });
+                            }
+                        },
+                        (error) => {
+                            console.error('Location error:', error);
+                            resolve({ 
+                                success: false,
+                                message: 'Could not get your location. Please make sure location services are enabled.'
+                            });
+                        },
+                        {
+                            enableHighAccuracy: true,
+                            timeout: 10000,
+                            maximumAge: 0
+                        }
+                    );
                 });
             },
 
@@ -743,33 +721,6 @@
                         statusText.textContent = 'Connection Error';
                         break;
                 }
-            },
-
-            getLocation: function() {
-                if (!navigator.geolocation) {
-                    this.showMessage('Geolocation is not supported by your browser', 'danger');
-                    return;
-                }
-                
-                navigator.geolocation.getCurrentPosition(
-                    position => {
-                        const location = {
-                            lat: position.coords.latitude,
-                            lng: position.coords.longitude,
-                            accuracy: position.coords.accuracy,
-                            timestamp: Date.now()
-                        };
-                        this.lastLocation = location;
-                        this.verifyLocation();
-                    },
-                    error => {
-                        this.showMessage(error.message, 'danger');
-                    },
-                    { 
-                        enableHighAccuracy: true, 
-                        timeout: this.sessionData?.locationTimeout || 10000 
-                    }
-                );
             }
         };
 
@@ -777,124 +728,6 @@
         document.addEventListener('DOMContentLoaded', () => {
             console.log('DOM loaded, initializing form...');
             formApp.init();
-        });
-
-        function handleLocation() {
-            return new Promise((resolve, reject) => {
-                const isTA = localStorage.getItem('userRole') === 'ta';
-                const manualLocationInputs = document.getElementById('manualLocationInputs');
-                
-                if (isTA) {
-                    // Show manual location inputs for TAs
-                    manualLocationInputs.style.display = 'block';
-                    
-                    // Get location from manual input
-                    const lat = parseFloat(document.getElementById('manualLatitude').value);
-                    const lng = parseFloat(document.getElementById('manualLongitude').value);
-                    
-                    if (!isNaN(lat) && !isNaN(lng)) {
-                        resolve({ coords: { latitude: lat, longitude: lng } });
-                    } else {
-                        reject(new Error('Please enter valid latitude and longitude values'));
-                    }
-                } else {
-                    // For students, use device location
-                    manualLocationInputs.style.display = 'none';
-                    if (!navigator.geolocation) {
-                        reject(new Error('Geolocation is not supported by your browser'));
-                        return;
-                    }
-                    
-                    navigator.geolocation.getCurrentPosition(resolve, reject);
-                }
-            });
-        }
-
-        async function handleSubmit(event) {
-            event.preventDefault();
-            const submitBtn = document.getElementById('submitBtn');
-            submitBtn.disabled = true;
-            
-            try {
-                // Get session data
-                const sessionId = document.getElementById('sessionId').value;
-                const password = document.getElementById('password').value;
-                
-                if (!sessionId || !password) {
-                    throw new Error('Please fill in all required fields');
-                }
-                
-                // Get location
-                const position = await handleLocation();
-                const studentLocation = {
-                    latitude: position.coords.latitude,
-                    longitude: position.coords.longitude
-                };
-                
-                // Get session reference
-                const sessionRef = dbRef(database, `sessions/${sessionId}`);
-                const sessionSnapshot = await dbGet(sessionRef);
-                
-                if (!sessionSnapshot.exists()) {
-                    throw new Error('Session not found');
-                }
-                
-                const sessionData = sessionSnapshot.val();
-                
-                // Verify password
-                if (sessionData.password !== password) {
-                    throw new Error('Invalid password');
-                }
-                
-                // Check if session is active
-                if (!sessionData.active) {
-                    throw new Error('This session is no longer active');
-                }
-                
-                // Calculate distance from class location
-                const distance = calculateDistance(
-                    studentLocation.latitude,
-                    studentLocation.longitude,
-                    sessionData.location.lat,
-                    sessionData.location.lng
-                );
-                
-                // Check if student is within allowed distance
-                if (distance > sessionData.allowedDistance) {
-                    throw new Error(`You are too far from the class location (${Math.round(distance)}m away)`);
-                }
-                
-                // Record attendance
-                const attendanceRef = dbRef(database, `attendance/${sessionId}`);
-                const studentId = localStorage.getItem('studentId');
-                
-                await dbSet(dbRef(database, `attendance/${sessionId}/${studentId}`), {
-                    timestamp: Date.now(),
-                    location: studentLocation,
-                    distance: Math.round(distance)
-                });
-                
-                showAlert('Attendance recorded successfully!', 'success');
-                
-                // Disable submit button permanently
-                submitBtn.disabled = true;
-                submitBtn.textContent = 'Attendance Recorded ✓';
-                
-            } catch (error) {
-                showAlert(error.message, 'danger');
-                submitBtn.disabled = false;
-            }
-        }
-
-        // Initialize form
-        document.addEventListener('DOMContentLoaded', () => {
-            const form = document.querySelector('form');
-            form.addEventListener('submit', handleSubmit);
-            
-            // Show/hide manual location inputs based on user role
-            const isTA = localStorage.getItem('userRole') === 'ta';
-            const manualLocationInputs = document.getElementById('manualLocationInputs');
-            manualLocationInputs.style.display = isTA ? 'block' : 'none';
         });
     </script>
 </body>
