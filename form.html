@@ -22,8 +22,8 @@
             measurementId: "G-D2WNX8RGRL"
         };
 
-        const app = initializeApp(firebaseConfig);
-        const database = getDatabase(app);
+        const firebaseApp = initializeApp(firebaseConfig);
+        const database = getDatabase(firebaseApp);
 
         // Make Firebase functions available globally
         window.database = database;
@@ -395,27 +395,35 @@
 
             init: async function() {
                 try {
+                    console.log('Starting form initialization...');
                     this.currentSessionId = new URLSearchParams(window.location.search).get('session');
                     this.deviceId = localStorage.getItem('deviceId') || crypto.randomUUID();
                     localStorage.setItem('deviceId', this.deviceId);
                     
                     if (!this.currentSessionId) {
+                        console.error('No session ID provided');
                         this.showNoSession();
                         return;
                     }
 
                     // Get current IP
                     try {
-                        this.currentIP = await fetch('https://api.ipify.org?format=json')
-                            .then(res => res.json())
-                            .then(data => data.ip)
-                            .catch(() => 'unknown');
+                        const ipResponse = await fetch('https://api.ipify.org?format=json');
+                        if (!ipResponse.ok) throw new Error('IP fetch failed');
+                        const ipData = await ipResponse.json();
+                        this.currentIP = ipData.ip;
                     } catch (error) {
                         console.error('IP fetch error:', error);
                         this.currentIP = 'unknown';
                     }
 
                     console.log('Initializing session:', this.currentSessionId);
+                    
+                    // Verify Firebase is initialized
+                    if (!window.database || !window.dbRef) {
+                        throw new Error('Firebase not properly initialized');
+                    }
+                    
                     await this.initializeSession();
                     
                     document.getElementById('attendanceForm').addEventListener('submit', (e) => {
@@ -424,7 +432,8 @@
                     });
                 } catch (error) {
                     console.error('Initialization error:', error);
-                    this.showMessage('Failed to initialize form', 'danger');
+                    this.showMessage('Failed to initialize form: ' + error.message, 'danger');
+                    this.showNoSession();
                 }
             },
 
@@ -433,31 +442,36 @@
                 this.updateConnectionStatus('connecting');
                 
                 try {
-                    if (!window.database || !window.dbRef) {
-                        throw new Error('Firebase not initialized');
-                    }
-
+                    // Set up session reference
                     this.sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
-                    this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
-
-                    // Check if this is TA's device
+                    
+                    // First get the session data
                     const sessionSnapshot = await window.dbGet(this.sessionRef);
+                    console.log('Session snapshot received:', sessionSnapshot.exists() ? 'yes' : 'no');
+                    
                     if (!sessionSnapshot.exists()) {
+                        console.error('Session does not exist');
                         this.showNoSession();
                         return;
                     }
 
                     const sessionData = sessionSnapshot.val();
+                    console.log('Initial session data:', sessionData ? 'received' : 'empty');
+                    
+                    // Check if this is TA's device
                     if (sessionData.taIP === this.currentIP) {
                         this.showMessage("⚠️ TA device cannot submit attendance.", "danger");
                         document.getElementById('submitBtn').disabled = true;
                         return;
                     }
 
+                    this.sessionData = sessionData;
+                    this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
+
                     // Set up real-time listener
                     window.dbOnValue(this.sessionRef, (snapshot) => {
                         const data = snapshot.val();
-                        console.log('Session data received:', data ? 'yes' : 'no');
+                        console.log('Real-time session update received:', data ? 'yes' : 'no');
                         
                         if (!data) {
                             this.showNoSession();
@@ -477,6 +491,10 @@
                         if (this.sessionData.password) {
                             document.getElementById('passwordField').classList.remove('hidden');
                         }
+                    }, (error) => {
+                        console.error('Session listener error:', error);
+                        this.showMessage('Connection error: ' + error.message, 'danger');
+                        this.updateConnectionStatus('error');
                     });
                     
                     // Set up attendees listener
@@ -488,15 +506,23 @@
                             this.sessionData.attendees = attendeeList;
                             this.updateAttendanceCount();
                         }
+                    }, (error) => {
+                        console.error('Attendees listener error:', error);
                     });
 
-                    console.log('Session connection established');
-                    this.updateConnectionStatus('connected');
+                    // Show initial session state
+                    if (!this.sessionData.active) {
+                        this.showClosedSession();
+                    } else {
+                        this.showActiveSession();
+                        this.updateConnectionStatus('connected');
+                    }
 
                 } catch (error) {
                     console.error('Session initialization error:', error);
-                    this.showMessage('Failed to connect to session', 'danger');
+                    this.showMessage('Failed to connect to session: ' + error.message, 'danger');
                     this.updateConnectionStatus('error');
+                    this.showNoSession();
                 }
             },
 
