@@ -480,12 +480,14 @@
                     console.log('Initial session data:', sessionData ? 'received' : 'empty');
                     console.log('Session active status:', sessionData.active);
                     
-                    // Check if this is TA's device
-                    if (sessionData.taIP === this.currentIP) {
-                        console.log('TA device detected, blocking submission');
-                        this.showMessage("⚠️ TA device cannot submit attendance.", "danger");
-                        document.getElementById('submitBtn').disabled = true;
-                        return;
+                    // Check if this is TA's device - only in production and if IP blocking is enabled
+                    if (sessionData.blockSameIP && !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
+                        if (sessionData.taIP === this.currentIP) {
+                            console.log('TA device detected, blocking submission');
+                            this.showMessage("⚠️ TA device cannot submit attendance.", "danger");
+                            document.getElementById('submitBtn').disabled = true;
+                            return;
+                        }
                     }
 
                     this.sessionData = sessionData;
@@ -639,6 +641,18 @@
                         return;
                     }
 
+                    // Check for same IP if blocking is enabled
+                    const attendees = Object.values(this.sessionData.attendees || {});
+                    const sameIPAttendees = attendees.filter(a => a.ip === this.currentIP);
+                    
+                    if (sameIPAttendees.length > 0) {
+                        const sameIPIds = sameIPAttendees.map(a => a.id).join(', ');
+                        if (this.sessionData.blockSameIP) {
+                            this.showMessage(`Another student (${sameIPIds}) has already submitted from this IP address`, 'danger');
+                            return;
+                        }
+                    }
+
                     // Handle location check
                     if (this.sessionData.useLocation) {
                         const locationResult = await this.verifyLocation();
@@ -657,6 +671,10 @@
                         deviceId: this.deviceId,
                         ip: this.currentIP
                     };
+
+                    if (sameIPAttendees.length > 0) {
+                        attendanceData.sameIPWith = sameIPAttendees.map(a => a.id);
+                    }
 
                     if (this.lastLocation) {
                         attendanceData.location = this.lastLocation;
