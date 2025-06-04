@@ -429,7 +429,6 @@
             lastLocation: null,
             locationAttempts: 0,
             maxLocationAttempts: 2,
-            currentToken: null,
 
             init: function() {
                 this.currentSessionId = new URLSearchParams(window.location.search).get('session');
@@ -451,11 +450,6 @@
                     const isTA = e.target.value === 'ta';
                     document.getElementById('manualLocationField').classList.toggle('hidden', !isTA);
                 });
-            },
-
-            generateToken: function() {
-                // Generate a unique token for this device/session
-                return 'token_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now().toString(36);
             },
 
             initializeSession: function() {
@@ -629,9 +623,6 @@
                             this.showMessage(`You must be within ${this.sessionData.locationDistance}m of the class (approximately ${Math.round(distance)}m away)`, 'danger');
                             return;
                         }
-                    } else {
-                        this.showMessage('Location verification failed', 'danger');
-                        return;
                     }
                 }
                 
@@ -662,31 +653,19 @@
                 submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
                 
                 try {
-                    const newAttendee = {
-                        id: student.id,
+                    const attendeeRef = window.dbPush(this.attendeesRef);
+                    await window.dbSet(attendeeRef, {
+                        id: studentId,
                         name: student.name,
-                        section: student.section || '',
-                        timestamp: Date.now(),
-                        role: role
-                    };
+                        role: role,
+                        timestamp: Date.now()
+                    });
                     
-                    await window.dbPush(this.attendeesRef, newAttendee);
-                    
-                    this.showMessage(`Attendance recorded successfully for ${student.name}!`, 'success');
-                    document.getElementById('student_id').value = '';
-                    if (password) document.getElementById('password').value = '';
-                    if (role === 'ta') {
-                        document.getElementById('latitude').value = '';
-                        document.getElementById('longitude').value = '';
-                    }
-                    
-                    setTimeout(() => {
-                        this.showMessage('', 'success');
-                    }, 3000);
-                    
+                    this.showMessage('Attendance recorded successfully!', 'success');
+                    document.getElementById('attendanceForm').reset();
                 } catch (error) {
-                    console.error('Error submitting attendance:', error);
-                    this.showMessage('Failed to submit attendance. Please try again.', 'danger');
+                    console.error('Submit error:', error);
+                    this.showMessage('Failed to record attendance. Please try again.', 'danger');
                 } finally {
                     submitBtn.disabled = false;
                     submitBtn.innerHTML = '<i class="fas fa-check-circle"></i> Submit Attendance';
@@ -734,12 +713,6 @@
                 return new Promise((resolve, reject) => {
                     if (!navigator.geolocation) {
                         reject('Geolocation not supported');
-                        return;
-                    }
-                    
-                    // Use cached location if recent (within 30 seconds)
-                    if (this.lastLocation && Date.now() - this.lastLocation.timestamp < 30000) {
-                        resolve(this.lastLocation);
                         return;
                     }
                     
