@@ -950,35 +950,15 @@
                             <span class="toggle-slider"></span>
                         </label>
                         <button type="button" id="setLocationBtn" class="btn btn-secondary location-btn">
-                            <i class="fas fa-map-marked-alt"></i> Set New Location
+                            <i class="fas fa-map-marked-alt"></i> Set Location
                         </button>
                     </label>
                     <div id="locationSettings" class="hidden">
-                        <div class="mb-4">
-                            <label for="locationName">Location Name:</label>
-                            <input type="text" id="locationName" placeholder="e.g., Room 1" class="mb-2">
-                            <select id="savedLocations" class="mb-2 full-width">
-                                <option value="">-- Select Saved Location --</option>
-                            </select>
-                        </div>
                         <label for="locationDistance">Maximum Distance (meters):</label>
-                        <input type="number" id="locationDistance" value="50" min="1">
+                        <input type="number" id="locationDistance" value="50" min="10">
                         <div id="locationPreview" style="margin-top: 0.5rem; font-size: 0.9rem; color: #6b7280;">
                             No location selected
                         </div>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label style="display: flex; align-items: center;">
-                        <i class="fas fa-network-wired"></i> IP Address Detection
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="blockSameIP" checked>
-                            <span class="toggle-slider"></span>
-                        </label>
-                    </label>
-                    <div style="margin-top: 0.5rem; font-size: 0.9rem; color: #6b7280;">
-                        When enabled, students using same IP address will be noted in the report
                     </div>
                 </div>
                 
@@ -1049,12 +1029,13 @@
             existingWeeks: [],
             maxExistingWeek: 0,
             classLocation: null,
-            savedLocations: JSON.parse(localStorage.getItem('savedLocations') || '[]'),
+            map: null,
+            marker: null,
+            selectedLocation: null,
 
             init: function() {
                 localStorage.setItem('deviceId', this.deviceId);
                 this.setupDragAndDrop();
-                this.setupLocationManagement();
                 
                 const locationToggle = document.getElementById('useLocation');
                 locationToggle.addEventListener('change', function() {
@@ -1065,85 +1046,15 @@
                 document.getElementById('setLocationBtn').addEventListener('click', () => {
                     this.openLocationModal();
                 });
-
-                // Load saved locations
-                this.loadSavedLocations();
                 
                 this.initVoiceCommands();
                 this.loadSessionHistory();
                 this.initializeApp();
-            },
 
-            setupLocationManagement: function() {
-                const savedLocationsSelect = document.getElementById('savedLocations');
-                savedLocationsSelect.addEventListener('change', () => {
-                    const selectedLocation = this.savedLocations.find(loc => 
-                        loc.name === savedLocationsSelect.value
-                    );
-                    if (selectedLocation) {
-                        this.classLocation = {
-                            lat: selectedLocation.latitude,
-                            lng: selectedLocation.longitude,
-                            accuracy: selectedLocation.accuracy
-                        };
-                        document.getElementById('locationName').value = selectedLocation.name;
-                        document.getElementById('locationPreview').textContent = 
-                            `Location set to: ${selectedLocation.name} (${selectedLocation.latitude.toFixed(6)}, ${selectedLocation.longitude.toFixed(6)})`;
-                    }
+                // Clean up when page is closed
+                window.addEventListener('beforeunload', () => {
+                    this.cleanup();
                 });
-            },
-
-            loadSavedLocations: function() {
-                const select = document.getElementById('savedLocations');
-                select.innerHTML = '<option value="">-- Select Saved Location --</option>';
-                this.savedLocations.forEach(location => {
-                    const option = document.createElement('option');
-                    option.value = location.name;
-                    option.textContent = location.name;
-                    select.appendChild(option);
-                });
-            },
-
-            saveCurrentLocation: function() {
-                if (!this.classLocation) return;
-                
-                const locationName = document.getElementById('locationName').value.trim();
-                if (!locationName) {
-                    this.showMessage('Please enter a location name', 'warning');
-                    return;
-                }
-
-                const newLocation = {
-                    name: locationName,
-                    latitude: this.classLocation.lat,
-                    longitude: this.classLocation.lng,
-                    accuracy: this.classLocation.accuracy
-                };
-
-                // Update or add location
-                const existingIndex = this.savedLocations.findIndex(loc => loc.name === locationName);
-                if (existingIndex >= 0) {
-                    this.savedLocations[existingIndex] = newLocation;
-                } else {
-                    this.savedLocations.push(newLocation);
-                }
-
-                localStorage.setItem('savedLocations', JSON.stringify(this.savedLocations));
-                this.loadSavedLocations();
-                this.showMessage('Location saved successfully!', 'success');
-            },
-
-            closeLocationModal: function() {
-                document.getElementById('locationQRModal').classList.add('hidden');
-                if (this.locationRef) {
-                    window.dbOff(this.locationRef);
-                    this.locationRef = null;
-                }
-                // Save location if name is provided
-                const locationName = document.getElementById('locationName').value.trim();
-                if (locationName && this.classLocation) {
-                    this.saveCurrentLocation();
-                }
             },
 
             cleanup: function() {
@@ -1345,14 +1256,23 @@
                         try {
                             const sessionId = 'session_' + Date.now();
                             
-                            // Save TA's IP for blocking - only in production
-                            let taIP = 'unknown';
-                            if (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
-                                taIP = await fetch('https://api.ipify.org?format=json')
-                                    .then(res => res.json())
-                                .then(data => data.ip)
-                                .catch(() => 'unknown');
-                            }
+                            // Save TA's IP for blocking
+                            const taIP = await fetch('https://api.ipify.org?format=json').then(res => res.json()).then(data => data.ip).catch(() => 'unknown');
+
+                            // Generate one token per student
+                            const tokenList = {};
+                            attendanceApp.rosterData.forEach(student => {
+                                const token = crypto.randomUUID();
+                                tokenList[token] = {
+                                    id: student.id,
+                                    name: student.name,
+                                    issuedToDevice: null,
+                                    issuedToIP: null,
+                                    used: false,
+                                    flagged: false,
+                                    issuedAt: Date.now()
+                                };
+                            });
 
                             const newSession = {
                                 id: sessionId,
@@ -1370,8 +1290,7 @@
                                 deviceId: attendanceApp.deviceId,
                                 existingWeeks: [...attendanceApp.existingWeeks],
                                 maxExistingWeek: attendanceApp.maxExistingWeek,
-                                taIP,
-                                blockSameIP: document.getElementById('blockSameIP').checked
+                                taIP
                             };
                             
                             if (useLocation && attendanceApp.classLocation) {
@@ -1382,14 +1301,19 @@
                                 const sessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
                                 await window.dbSet(sessionRef, newSession);
                                 
+                                // Save tokens to database
+                                await window.dbSet(window.dbRef(window.database, `sessions/${sessionId}/tokens`), tokenList);
+                                
                                 attendanceApp.saveSessionToLocal(newSession);
                                 
                                 const attendeesRef = window.dbRef(window.database, `sessions/${sessionId}/attendees`);
+                                const tokensRef = window.dbRef(window.database, `sessions/${sessionId}/tokens`);
                                 
                                 const sessionData = {
                                     ...newSession,
                                     sessionRef,
                                     attendeesRef,
+                                    tokensRef,
                                     syncStatus: 'connecting'
                                 };
                                 
@@ -1688,24 +1612,32 @@
                 const subjectName = session.subject;
                 const allWeeks = [...(session.existingWeeks || []), currentWeek].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
                 
-                // Build IP conflicts map
-                const ipMap = {};
-                attendees.forEach(a => {
-                    if (!a.ip || a.ip === 'unknown') return;
-                    if (!ipMap[a.ip]) ipMap[a.ip] = [];
-                    ipMap[a.ip].push(a);
+                // Get token data
+                const tokensSnap = await window.dbGet(window.dbRef(window.database, `sessions/${sessionId}/tokens`));
+                const tokenMap = tokensSnap.val() || {};
+                
+                // Token flags
+                const tokenNotes = {};
+                Object.entries(tokenMap).forEach(([token, data]) => {
+                    if (data.flagged && data.secondStudentId) {
+                        tokenNotes[data.id] = `Same token with ${data.secondStudentId}`;
+                        tokenNotes[data.secondStudentId] = `Same token with ${data.id}`;
+                    }
                 });
 
-                // Generate IP conflict notes
+                // IP flags
+                const ipMap = {};
+                attendees.forEach(a => {
+                    if (!a.ip) return;
+                    if (!ipMap[a.ip]) ipMap[a.ip] = [];
+                    ipMap[a.ip].push(a.id);
+                });
+
                 const ipNotes = {};
-                Object.values(ipMap).forEach(students => {
-                    if (students.length > 1) {
-                        students.forEach(student => {
-                            const othersIds = students
-                                .filter(s => s.id !== student.id)
-                                .map(s => s.id)
-                                .join(', ');
-                            ipNotes[student.id] = `Same IP with: ${othersIds}`;
+                Object.entries(ipMap).forEach(([ip, ids]) => {
+                    if (ids.length > 1) {
+                        ids.forEach(id => {
+                            ipNotes[id] = `Same IP with ${ids.filter(x => x !== id).join(', ')}`;
                         });
                     }
                 });
@@ -1739,7 +1671,15 @@
 
                         // Add IP note if applicable
                         const ipNote = ipNotes[student.id] || '';
-                        row['IP Note'] = ipNote;
+                            
+                        // Add token note if applicable
+                        const tokenNote = tokenNotes[student.id] || '';
+                        
+                        // Combine notes
+                        row['Note'] = [ipNote, tokenNote].filter(Boolean).join(' | ');
+                        
+                        // Add flagged column if token was misused
+                        row['Flagged'] = tokenNote ? 'Yes' : '';
                         
                         reportData.push(row);
                     });
@@ -1758,11 +1698,35 @@
 
                         // Add IP note if applicable
                         const ipNote = ipNotes[student.id] || '';
-                        row['IP Note'] = ipNote;
+                            
+                        // Add token note if applicable
+                        const tokenNote = tokenNotes[student.id] || '';
+                        
+                        // Combine notes
+                        row['Note'] = [ipNote, tokenNote].filter(Boolean).join(' | ');
+                        
+                        // Add flagged column if token was misused
+                        row['Flagged'] = tokenNote ? 'Yes' : '';
                         
                         reportData.push(row);
                     });
                 }
+                
+                // Add flagged submissions at the end
+                attendees.filter(a => a.flagged).forEach(flagged => {
+                    if (!reportData.some(r => r['Student ID'] === flagged.id)) {
+                        reportData.push({
+                            'Student ID': flagged.id,
+                            'Name': flagged.name || 'Flagged Submission',
+                            'Section': flagged.section || '',
+                            [`Week ${currentWeek}`]: 0,
+                            'Total Attendance': 0,
+                            [`Timestamp Week ${currentWeek}`]: new Date(flagged.timestamp).toLocaleString(),
+                            'Note': flagged.note || 'Flagged submission',
+                            'Flagged': 'Yes'
+                        });
+                    }
+                });
                 
                 const columnOrder = ['Student ID', 'Name', 'Section'];
                 
@@ -1776,8 +1740,9 @@
                     columnOrder.push(`Timestamp Week ${week}`);
                 });
 
-                // Add IP Note column
-                columnOrder.push('IP Note');
+                // Add Note and Flagged columns
+                columnOrder.push('Note');
+                columnOrder.push('Flagged');
                 
                 const reorderedData = reportData.map(row => {
                     const newRow = {};
@@ -2315,7 +2280,8 @@
                 }
                 
                 const locationId = 'loc_' + Date.now();
-                const locationUrl = `location.html?id=${locationId}`;
+                const baseUrl = window.location.origin;
+                const locationUrl = `${baseUrl}/location.html?id=${locationId}`;
                 
                 // Generate QR code
                 const qr = qrcode(0, 'L');
