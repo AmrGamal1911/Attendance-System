@@ -325,7 +325,7 @@
         <div class="card">
             <div id="loadingSection" class="loading">
                 <div class="spinner"></div>
-                <p>Connecting to session...</p>
+                <p id="connectionStatus">Initializing connection...</p>
             </div>
             
             <div id="activeSession" class="hidden">
@@ -391,10 +391,10 @@
             maxLocationAttempts: 2,
             currentToken: null,
             initialLoadTime: null,
+            connectionTimeout: null,
 
             init: function() {
                 this.currentSessionId = new URLSearchParams(window.location.search).get('session');
-                this.currentToken = new URLSearchParams(window.location.search).get('token');
                 
                 if (!this.currentSessionId) {
                     this.showMessage('Invalid session', 'danger');
@@ -402,102 +402,64 @@
                     return;
                 }
 
-                // Initialize Firebase references
-                this.sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
-                this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
+                // Set connection timeout
+                this.connectionTimeout = setTimeout(() => {
+                    if (document.getElementById('loadingSection').classList.contains('loading')) {
+                        this.showMessage('Connection timeout. Please refresh the page.', 'danger');
+                        this.updateConnectionStatus('error');
+                    }
+                }, 15000);
 
-                // If we have a token, verify it, otherwise get a new one
-                if (this.currentToken) {
-                    this.verifyToken();
-                } else {
-                    this.initializeSession();
-                }
-                
-                document.getElementById('attendanceForm').addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    this.submitAttendance();
-                });
+                // Update loading message
+                document.getElementById('loadingSection').innerHTML = `
+                    <div class="spinner"></div>
+                    <p id="connectionStatus">Initializing connection...</p>
+                `;
+
+                // Initialize Firebase and start session
+                this.initializeFirebase();
             },
 
-            async verifyToken() {
-                this.updateConnectionStatus('connecting');
-                
+            initializeFirebase: function() {
                 try {
-                    const snapshot = await window.dbGet(this.sessionRef);
-                    const data = snapshot.val();
-                    
-                    if (!data) {
-                        this.showNoSession();
-                        return;
-                    }
+                    // Initialize Firebase references
+                    this.sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
+                    this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
 
-                    if (!data.active) {
-                        this.showClosedSession();
-                        return;
-                    }
+                    // Update status
+                    document.getElementById('connectionStatus').textContent = 'Verifying session...';
 
-                    // Check if token is already used
-                    if (data.usedTokens && data.usedTokens[this.currentToken]) {
-                        this.showMessage('This attendance link has already been used. Requesting new link...', 'danger');
-                        // Clear token and restart
-                        this.currentToken = null;
-                        this.initializeSession();
-                        return;
-                    }
+                    // Check if session exists
+                    window.dbGet(this.sessionRef).then(snapshot => {
+                        const data = snapshot.val();
+                        
+                        if (!data) {
+                            clearTimeout(this.connectionTimeout);
+                            this.showNoSession();
+                            return;
+                        }
 
-                    // Check if token exists in available tokens
-                    if (!data.availableTokens.includes(this.currentToken)) {
-                        this.showMessage('Invalid attendance link. Requesting new link...', 'danger');
-                        // Clear token and restart
-                        this.currentToken = null;
-                        this.initializeSession();
-                        return;
-                    }
+                        if (!data.active) {
+                            clearTimeout(this.connectionTimeout);
+                            this.showClosedSession();
+                            return;
+                        }
 
-                    // Token is valid
-                    this.sessionData = data;
-                    this.showActiveSession();
-                    this.updateConnectionStatus('connected');
-                    
-                    if (this.sessionData.password) {
-                        document.getElementById('passwordField').classList.remove('hidden');
-                    }
-
-                    this.setupSessionListeners();
+                        // Session exists and is active
+                        this.sessionData = data;
+                        document.getElementById('connectionStatus').textContent = 'Requesting attendance slot...';
+                        
+                        // Request token
+                        this.requestNewToken();
+                    }).catch(error => {
+                        console.error('Error checking session:', error);
+                        this.showMessage('Failed to verify session. Please try again.', 'danger');
+                        this.updateConnectionStatus('error');
+                    });
 
                 } catch (error) {
-                    console.error('Error verifying token:', error);
-                    this.showMessage('Failed to verify attendance link. Please try again.', 'danger');
-                    this.updateConnectionStatus('error');
-                }
-            },
-
-            initializeSession: async function() {
-                this.updateConnectionStatus('connecting');
-                
-                try {
-                    // Get initial session data
-                    const snapshot = await window.dbGet(this.sessionRef);
-                    const data = snapshot.val();
-                    
-                    if (!data) {
-                        this.showNoSession();
-                        return;
-                    }
-                    
-                    if (!data.active) {
-                        this.showClosedSession();
-                        return;
-                    }
-
-                    this.sessionData = data;
-
-                    // Request a new token
-                    await this.requestNewToken();
-                    
-                } catch (error) {
-                    console.error('Failed to initialize session:', error);
-                    this.showMessage('Failed to connect to session', 'danger');
+                    console.error('Firebase initialization error:', error);
+                    this.showMessage('Failed to initialize connection. Please refresh the page.', 'danger');
                     this.updateConnectionStatus('error');
                 }
             },
@@ -509,12 +471,14 @@
                     const sessionData = sessionSnap.val();
 
                     if (!sessionData || !sessionData.active) {
+                        clearTimeout(this.connectionTimeout);
                         this.showMessage('Session is no longer active', 'danger');
                         this.showClosedSession();
                         return false;
                     }
 
                     if (!sessionData.availableTokens || sessionData.availableTokens.length === 0) {
+                        clearTimeout(this.connectionTimeout);
                         this.showMessage('No attendance slots available. Session is full.', 'danger');
                         return false;
                     }
@@ -531,16 +495,26 @@
                     // Perform the atomic update
                     await window.dbSet(window.dbRef(window.database), updates);
 
-                    // Redirect to the same page with the token
-                    const tokenUrl = new URL(window.location.href);
-                    tokenUrl.searchParams.set('token', token);
-                    window.location.href = tokenUrl.toString();
+                    // Store token and show form
+                    this.currentToken = token;
+                    clearTimeout(this.connectionTimeout);
+                    this.showActiveSession();
+                    this.updateConnectionStatus('connected');
+                    
+                    if (this.sessionData.password) {
+                        document.getElementById('passwordField').classList.remove('hidden');
+                    }
+
+                    // Set up session listeners
+                    this.setupSessionListeners();
 
                     return true;
 
                 } catch (error) {
                     console.error('Error requesting token:', error);
+                    clearTimeout(this.connectionTimeout);
                     this.showMessage('Failed to get attendance slot. Please refresh the page.', 'danger');
+                    this.updateConnectionStatus('error');
                     return false;
                 }
             },
@@ -747,6 +721,8 @@
             updateConnectionStatus: function(status) {
                 const indicator = document.getElementById('connectionIndicator');
                 const statusText = document.getElementById('connectionStatus');
+                
+                if (!indicator || !statusText) return;
                 
                 indicator.className = 'status-indicator';
                 
