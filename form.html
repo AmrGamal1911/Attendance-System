@@ -394,19 +394,70 @@
 
             init: function() {
                 this.currentSessionId = new URLSearchParams(window.location.search).get('session');
+                this.currentToken = new URLSearchParams(window.location.search).get('token');
                 
                 if (!this.currentSessionId) {
                     this.showMessage('Invalid session', 'danger');
                     this.showNoSession();
                     return;
                 }
-                
-                this.initializeSession();
+
+                // If we already have a token in the URL, verify it
+                if (this.currentToken) {
+                    this.verifyExistingToken();
+                } else {
+                    this.initializeSession();
+                }
                 
                 document.getElementById('attendanceForm').addEventListener('submit', (e) => {
                     e.preventDefault();
                     this.submitAttendance();
                 });
+            },
+
+            async verifyExistingToken() {
+                try {
+                    const sessionSnap = await window.dbGet(this.sessionRef);
+                    const sessionData = sessionSnap.val();
+
+                    if (!sessionData || !sessionData.active) {
+                        this.showMessage('Session is no longer active', 'danger');
+                        this.showClosedSession();
+                        return;
+                    }
+
+                    // Check if token is already used
+                    if (sessionData.usedTokens && sessionData.usedTokens[this.currentToken]) {
+                        // Token was used, request a new one
+                        this.currentToken = null;
+                        this.initializeSession();
+                        return;
+                    }
+
+                    // Check if token exists in available tokens
+                    if (!sessionData.availableTokens.includes(this.currentToken)) {
+                        // Token not found in available tokens, request a new one
+                        this.currentToken = null;
+                        this.initializeSession();
+                        return;
+                    }
+
+                    // Token is valid, proceed with session
+                    this.sessionData = sessionData;
+                    this.showActiveSession();
+                    this.updateConnectionStatus('connected');
+                    
+                    if (this.sessionData.password) {
+                        document.getElementById('passwordField').classList.remove('hidden');
+                    }
+
+                    // Set up session listeners
+                    this.setupSessionListeners();
+
+                } catch (error) {
+                    console.error('Error verifying token:', error);
+                    this.showMessage('Failed to verify token. Please refresh the page.', 'danger');
+                }
             },
 
             initializeSession: async function() {
@@ -445,33 +496,38 @@
                         }
                     }
 
-                    // Listen for session updates
-                    window.dbOnValue(this.sessionRef, (snapshot) => {
-                        const data = snapshot.val();
-                        
-                        if (!data || !data.active) {
-                            this.showClosedSession();
-                            return;
-                        }
-                        
-                        this.sessionData = data;
-                    });
-                    
-                    window.dbOnValue(this.attendeesRef, (snapshot) => {
-                        const attendees = snapshot.val() || {};
-                        const attendeeList = Object.values(attendees);
-                        
-                        if (this.sessionData) {
-                            this.sessionData.attendees = attendeeList;
-                            this.updateAttendanceCount();
-                        }
-                    });
+                    // Set up session listeners
+                    this.setupSessionListeners();
                     
                 } catch (error) {
                     console.error('Failed to initialize session:', error);
                     this.showMessage('Failed to connect to session', 'danger');
                     this.updateConnectionStatus('error');
                 }
+            },
+
+            setupSessionListeners: function() {
+                // Listen for session updates
+                window.dbOnValue(this.sessionRef, (snapshot) => {
+                    const data = snapshot.val();
+                    
+                    if (!data || !data.active) {
+                        this.showClosedSession();
+                        return;
+                    }
+                    
+                    this.sessionData = data;
+                });
+                
+                window.dbOnValue(this.attendeesRef, (snapshot) => {
+                    const attendees = snapshot.val() || {};
+                    const attendeeList = Object.values(attendees);
+                    
+                    if (this.sessionData) {
+                        this.sessionData.attendees = attendeeList;
+                        this.updateAttendanceCount();
+                    }
+                });
             },
 
             async requestNewToken() {
@@ -502,6 +558,11 @@
 
                     // Perform the atomic update
                     await window.dbSet(window.dbRef(window.database), updates);
+
+                    // Update URL with the token
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('token', token);
+                    window.history.replaceState({}, '', url);
 
                     // Store the token
                     this.currentToken = token;
