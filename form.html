@@ -8,120 +8,28 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
     <script type="module">
-        import { initializeApp, getApps } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
-        import { getDatabase, ref, onValue, push, off, set, get, serverTimestamp, runTransaction } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
-        import { getAnalytics } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-analytics.js';
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
+        import { getDatabase, ref, onValue, push, off, set, get } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
 
-        const initFirebase = async () => {
-            try {
-                const firebaseConfig = {
-                    apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
-                    authDomain: "eelu-attendance.firebaseapp.com",
-                    databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
-                    projectId: "eelu-attendance",
-                    storageBucket: "eelu-attendance.firebasestorage.app",
-                    messagingSenderId: "5132239076",
-                    appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
-                    measurementId: "G-D2WNX8RGRL"
-                };
-
-                // Initialize Firebase app if not already initialized
-                let app;
-                const apps = getApps();
-                if (apps.length === 0) {
-                    app = initializeApp(firebaseConfig);
-                } else {
-                    app = apps[0];
-                }
-
-                // Initialize Analytics
-                const analytics = getAnalytics(app);
-
-                const database = getDatabase(app);
-
-                // Test connection with retry
-                const testConnection = async (retries = 3) => {
-                    for (let i = 0; i < retries; i++) {
-                        try {
-                            const connectedRef = ref(database, '.info/connected');
-                            const snapshot = await get(connectedRef);
-                            
-                            if (snapshot.val() === true) {
-                                console.log('Firebase connection established');
-                                return true;
-                            }
-                            
-                            console.log(`Connection attempt ${i + 1} failed, retrying...`);
-                            await new Promise(resolve => setTimeout(resolve, 2000));
-                        } catch (error) {
-                            console.error(`Connection attempt ${i + 1} error:`, error);
-                            if (i === retries - 1) throw error;
-                            await new Promise(resolve => setTimeout(resolve, 2000));
-                        }
-                    }
-                    throw new Error('Failed to establish connection after retries');
-                };
-
-                // Test the connection
-                await testConnection();
-
-                // Assign to window object
-                window.database = database;
-                window.dbRef = ref;
-                window.dbSet = set;
-                window.dbOnValue = onValue;
-                window.dbPush = push;
-                window.dbOff = off;
-                window.dbGet = get;
-                window.dbServerTimestamp = serverTimestamp;
-                window.dbRunTransaction = runTransaction;
-
-                // Set up connection monitoring
-                const connectedRef = ref(database, '.info/connected');
-                onValue(connectedRef, (snapshot) => {
-                    const connected = snapshot.val();
-                    if (window.formApp) {
-                        if (connected) {
-                            window.formApp.handleConnectionRestored();
-                        } else {
-                            window.formApp.handleConnectionLost();
-                        }
-                    }
-                });
-
-                if (window.formApp) {
-                    window.formApp.init();
-                }
-
-            } catch (error) {
-                console.error('Firebase initialization error:', error);
-                if (window.formApp) {
-                    window.formApp.showMessage('Failed to connect to database. Please check your internet connection and refresh the page.', 'danger');
-                    window.formApp.updateConnectionStatus('error');
-                }
-            }
+        const firebaseConfig = {
+            apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
+            authDomain: "eelu-attendance.firebaseapp.com",
+            databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
+            projectId: "eelu-attendance",
+            storageBucket: "eelu-attendance.appspot.com",
+            messagingSenderId: "5132239076",
+            appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
+            measurementId: "G-D2WNX8RGRL"
         };
 
-        // Initialize Firebase with retry mechanism
-        const initWithRetry = async (maxRetries = 3) => {
-            for (let i = 0; i < maxRetries; i++) {
-                try {
-                    await initFirebase();
-                    return;
-                } catch (error) {
-                    console.error(`Initialization attempt ${i + 1} failed:`, error);
-                    if (i === maxRetries - 1) {
-                        if (window.formApp) {
-                            window.formApp.showMessage('Failed to initialize after multiple attempts. Please check your internet connection and refresh the page.', 'danger');
-                        }
-                        return;
-                    }
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                }
-            }
-        };
-
-        initWithRetry();
+        const app = initializeApp(firebaseConfig);
+        window.database = getDatabase(app);
+        window.dbRef = ref;
+        window.dbSet = set;
+        window.dbOnValue = onValue;
+        window.dbPush = push;
+        window.dbOff = off;
+        window.dbGet = get;
     </script>
     
     <style>
@@ -279,6 +187,33 @@
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
             outline: none;
         }
+
+        select {
+            width: 100%;
+            padding: 0.875rem 1rem;
+            border: 2px solid #e5e7eb;
+            border-radius: var(--border-radius);
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            background-color: white;
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+            background-position: right 0.5rem center;
+            background-repeat: no-repeat;
+            background-size: 1.5em 1.5em;
+            padding-right: 2.5rem;
+        }
+
+        select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            outline: none;
+        }
+
+        #manualLocationField input {
+            width: calc(50% - 5px);
+        }
         
         .btn {
             background: var(--gradient);
@@ -417,7 +352,7 @@
         <div class="card">
             <div id="loadingSection" class="loading">
                 <div class="spinner"></div>
-                <p id="connectionStatus">Initializing connection...</p>
+                <p>Connecting to session...</p>
             </div>
             
             <div id="activeSession" class="hidden">
@@ -438,7 +373,15 @@
                 
                 <form id="attendanceForm">
                     <div class="form-group">
-                        <label for="student_id"><i class="fas fa-id-card"></i> Student ID</label>
+                        <label for="role"><i class="fas fa-user-tag"></i> Role</label>
+                        <select id="role" name="role" required class="form-control">
+                            <option value="student">Student</option>
+                            <option value="ta">Teaching Assistant</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="student_id"><i class="fas fa-id-card"></i> ID</label>
                         <input type="text" id="student_id" name="student_id" placeholder="Enter your university ID" required>
                     </div>
                     
@@ -446,9 +389,14 @@
                         <label for="password"><i class="fas fa-lock"></i> Session Password</label>
                         <input type="password" id="password" name="password" placeholder="Enter session password">
                     </div>
-                    
-                    <!-- Hidden device token field -->
-                    <input type="hidden" id="deviceToken" name="deviceToken">
+
+                    <div id="manualLocationField" class="form-group hidden">
+                        <label><i class="fas fa-map-marker-alt"></i> Location</label>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="latitude" name="latitude" placeholder="Latitude" step="any">
+                            <input type="number" id="longitude" name="longitude" placeholder="Longitude" step="any">
+                        </div>
+                    </div>
                     
                     <button type="submit" class="btn" id="submitBtn">
                         <i class="fas fa-check-circle"></i> Submit Attendance
@@ -480,155 +428,84 @@
             attendeesRef: null,
             lastLocation: null,
             locationAttempts: 0,
-            maxLocationAttempts: 3,
+            maxLocationAttempts: 2,
+            currentToken: null,
 
             init: function() {
-                if (!window.database || !window.dbRef || !window.dbGet) {
-                    console.error('Firebase not initialized properly');
-                    this.showMessage('Failed to initialize connection. Please refresh the page.', 'danger');
-                    this.updateConnectionStatus('error');
-                    return;
-                }
-
-                // Get session ID from URL
                 this.currentSessionId = new URLSearchParams(window.location.search).get('session');
                 
                 if (!this.currentSessionId) {
-                    this.showMessage('Invalid session', 'danger');
                     this.showNoSession();
                     return;
                 }
+                
+                this.initializeSession();
+                
+                document.getElementById('attendanceForm').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.submitAttendance();
+                });
 
-                // Set connection timeout
-                this.connectionTimeout = setTimeout(() => {
-                    if (document.getElementById('loadingSection').classList.contains('loading')) {
-                        this.showMessage('Connection timeout. Please refresh the page.', 'danger');
-                        this.updateConnectionStatus('error');
-                    }
-                }, 15000);
-
-                // Initialize Firebase and start session
-                this.initializeFirebase();
+                // Add role change event listener
+                document.getElementById('role').addEventListener('change', (e) => {
+                    const isTA = e.target.value === 'ta';
+                    document.getElementById('manualLocationField').classList.toggle('hidden', !isTA);
+                });
             },
 
-            initializeFirebase: function() {
-                try {
-                    if (!window.database) {
-                        throw new Error('Firebase database not initialized');
-                    }
+            generateToken: function() {
+                // Generate a unique token for this device/session
+                return 'token_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now().toString(36);
+            },
 
+            initializeSession: function() {
+                this.updateConnectionStatus('connecting');
+                
+                try {
                     this.sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
                     this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
-
-                    // Check if session exists
-                    window.dbGet(this.sessionRef).then(snapshot => {
+                    
+                    window.dbOnValue(this.sessionRef, (snapshot) => {
                         const data = snapshot.val();
                         
                         if (!data) {
                             this.showNoSession();
                             return;
                         }
-
-                        if (!data.active) {
+                        
+                        this.sessionData = data;
+                        
+                        if (!this.sessionData.active) {
                             this.showClosedSession();
                             return;
                         }
-
-                        // Session exists and is active
-                        this.sessionData = data;
+                        
                         this.showActiveSession();
-                        this.setupSessionListeners();
+                        this.updateConnectionStatus('connected');
                         
                         if (this.sessionData.password) {
                             document.getElementById('passwordField').classList.remove('hidden');
                         }
-                        
-                    }).catch(error => {
-                        console.error('Error checking session:', error);
-                        this.showMessage('Failed to verify session. Please try again.', 'danger');
-                        this.updateConnectionStatus('error');
                     });
-
-                } catch (error) {
-                    console.error('Firebase initialization error:', error);
-                    this.showMessage('Failed to initialize connection. Please refresh the page.', 'danger');
-                    this.updateConnectionStatus('error');
-                }
-            },
-
-            async submitAttendance() {
-                const studentId = document.getElementById('student_id').value.trim().toUpperCase();
-                const password = document.getElementById('password')?.value;
-                
-                if (!studentId) {
-                    this.showMessage('Please enter your student ID', 'danger');
-                    return;
-                }
-
-                if (this.sessionData.password && password !== this.sessionData.password) {
-                    this.showMessage('Invalid password', 'danger');
-                    return;
-                }
-
-                try {
-                    // Check if location verification is required
-                    if (this.sessionData.useLocation) {
-                        try {
-                            const studentLocation = await this.getStudentLocation();
-                            const distance = this.calculateDistance(studentLocation, this.sessionData.classLocation);
-                            const maxDistance = this.sessionData.locationDistance || 50;
-
-                            if (distance > maxDistance) {
-                                this.showMessage(`You are too far from the class location (${Math.round(distance)}m away). Maximum allowed distance is ${maxDistance}m.`, 'danger');
-                                return;
+                    
+                    window.dbOnValue(this.attendeesRef, (snapshot) => {
+                        const attendees = snapshot.val() || {};
+                        const attendeeList = Object.values(attendees);
+                        
+                        if (this.sessionData) {
+                            this.sessionData.attendees = attendeeList;
+                            this.updateAttendanceCount();
+                            
+                            if (attendeeList.length >= this.sessionData.maxAttendees && this.sessionData.active) {
+                                window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/active`), false);
                             }
-                        } catch (error) {
-                            this.showMessage(error, 'danger');
-                            return;
                         }
-                    }
-
-                    // Find student in roster
-                    const student = this.sessionData.roster.find(s => s.id.toUpperCase() === studentId);
-                    if (!student) {
-                        this.showMessage('Student ID not found in roster', 'danger');
-                        return;
-                    }
-
-                    // Check if student already submitted attendance
-                    const hasAttended = Object.values(this.sessionData.attendees || {}).some(a => a.id.toUpperCase() === studentId);
-                    if (hasAttended) {
-                        this.showMessage('Attendance already recorded for this student', 'danger');
-                        return;
-                    }
-
-                    // Add attendance record
-                    const attendeeRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
-                    const newAttendee = {
-                        id: student.id,
-                        name: student.name,
-                        section: student.section || '',
-                        timestamp: Date.now()
-                    };
-
-                    await window.dbPush(attendeeRef, newAttendee);
-
-                    // Show success message and clear form
-                    this.showMessage(`Attendance recorded successfully for ${student.name}!`, 'success');
-                    document.getElementById('student_id').value = '';
-                    if (password) document.getElementById('password').value = '';
-
-                    // Disable form after successful submission
-                    document.getElementById('attendanceForm').innerHTML = `
-                        <div class="alert alert-success">
-                            <i class="fas fa-check-circle"></i>
-                            Attendance recorded successfully!
-                        </div>
-                    `;
-
+                    });
+                    
                 } catch (error) {
-                    console.error('Error submitting attendance:', error);
-                    this.showMessage('Failed to submit attendance. Please try again.', 'danger');
+                    console.error('Failed to initialize session:', error);
+                    this.showMessage('Failed to connect to session', 'danger');
+                    this.updateConnectionStatus('error');
                 }
             },
 
@@ -681,11 +558,144 @@
                 }
             },
 
+            async submitAttendance() {
+                const studentId = document.getElementById('student_id').value.trim().toUpperCase();
+                const password = document.getElementById('password')?.value;
+                const role = document.getElementById('role').value;
+                
+                if (!studentId) {
+                    this.showMessage('Please enter your ID', 'danger');
+                    return;
+                }
+
+                if (this.sessionData.password && password !== this.sessionData.password) {
+                    this.showMessage('Invalid password', 'danger');
+                    return;
+                }
+                
+                // Location verification
+                if (this.sessionData.useLocation && this.sessionData.classLocation) {
+                    let locationVerified = false;
+                    let studentLocation;
+
+                    if (role === 'ta') {
+                        // Get manual location input for TAs
+                        const latitude = parseFloat(document.getElementById('latitude').value);
+                        const longitude = parseFloat(document.getElementById('longitude').value);
+                        
+                        if (isNaN(latitude) || isNaN(longitude)) {
+                            this.showMessage('Please enter valid location coordinates', 'danger');
+                            return;
+                        }
+
+                        studentLocation = {
+                            lat: latitude,
+                            lng: longitude,
+                            accuracy: 10 // Assuming high accuracy for manual input
+                        };
+                        locationVerified = true;
+                    } else {
+                        // Get automatic location for students
+                        try {
+                            studentLocation = await this.getFreshLocation();
+                            if (!studentLocation) {
+                                throw new Error('Could not get location');
+                            }
+                            
+                            // Check location accuracy
+                            if (studentLocation.accuracy > 50) {
+                                this.showMessage('Location accuracy too low. Please ensure your GPS is enabled and try again.', 'danger');
+                                return;
+                            }
+                            
+                            locationVerified = true;
+                        } catch (error) {
+                            console.error('Location error:', error);
+                            this.showMessage('Failed to get location. Please ensure location access is enabled.', 'danger');
+                            return;
+                        }
+                    }
+
+                    if (locationVerified) {
+                        const distance = this.calculateDistance(
+                            studentLocation, 
+                            this.sessionData.classLocation
+                        );
+                        
+                        const accuracyBuffer = studentLocation.accuracy + 10; // Add 10m buffer
+                        const maxAllowedDistance = this.sessionData.locationDistance + accuracyBuffer;
+                        
+                        if (distance > maxAllowedDistance) {
+                            this.showMessage(`You must be within ${this.sessionData.locationDistance}m of the class (approximately ${Math.round(distance)}m away)`, 'danger');
+                            return;
+                        }
+                    } else {
+                        this.showMessage('Location verification failed', 'danger');
+                        return;
+                    }
+                }
+                
+                const attendeeSnap = await window.dbGet(this.attendeesRef);
+                const attendees = attendeeSnap.val() || {};
+                const attendeeList = Object.values(attendees);
+                
+                if (attendeeList.length >= this.sessionData.maxAttendees) {
+                    this.showMessage('This session is full', 'danger');
+                    return;
+                }
+                
+                const student = this.sessionData.roster ? 
+                    this.sessionData.roster.find(s => s.id.toUpperCase() === studentId) : null;
+                
+                if (!student) {
+                    this.showMessage('ID not found in roster', 'danger');
+                    return;
+                }
+                
+                if (attendeeList.some(a => a.id.toUpperCase() === studentId)) {
+                    this.showMessage('Attendance already recorded for this ID', 'danger');
+                    return;
+                }
+                
+                const submitBtn = document.getElementById('submitBtn');
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
+                
+                try {
+                    const newAttendee = {
+                        id: student.id,
+                        name: student.name,
+                        section: student.section || '',
+                        timestamp: Date.now(),
+                        role: role
+                    };
+                    
+                    await window.dbPush(this.attendeesRef, newAttendee);
+                    
+                    this.showMessage(`Attendance recorded successfully for ${student.name}!`, 'success');
+                    document.getElementById('student_id').value = '';
+                    if (password) document.getElementById('password').value = '';
+                    if (role === 'ta') {
+                        document.getElementById('latitude').value = '';
+                        document.getElementById('longitude').value = '';
+                    }
+                    
+                    setTimeout(() => {
+                        this.showMessage('', 'success');
+                    }, 3000);
+                    
+                } catch (error) {
+                    console.error('Error submitting attendance:', error);
+                    this.showMessage('Failed to submit attendance. Please try again.', 'danger');
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-check-circle"></i> Submit Attendance';
+                }
+            },
+
             updateConnectionStatus: function(status) {
                 const indicator = document.getElementById('connectionIndicator');
                 const statusText = document.getElementById('connectionStatus');
-                
-                if (!indicator || !statusText) return;
                 
                 indicator.className = 'status-indicator';
                 
@@ -720,300 +730,61 @@
                 }
             },
 
-            getStudentLocation: function() {
+            getFreshLocation: function() {
                 return new Promise((resolve, reject) => {
                     if (!navigator.geolocation) {
-                        reject('Geolocation is not supported by your browser');
+                        reject('Geolocation not supported');
                         return;
                     }
-
-                    const options = {
-                        enableHighAccuracy: true,
-                        timeout: 10000,
-                        maximumAge: 0
-                    };
-
+                    
+                    // Use cached location if recent (within 30 seconds)
+                    if (this.lastLocation && Date.now() - this.lastLocation.timestamp < 30000) {
+                        resolve(this.lastLocation);
+                        return;
+                    }
+                    
                     navigator.geolocation.getCurrentPosition(
-                        (position) => {
+                        position => {
                             const location = {
                                 lat: position.coords.latitude,
                                 lng: position.coords.longitude,
-                                accuracy: position.coords.accuracy
+                                accuracy: position.coords.accuracy,
+                                timestamp: Date.now()
                             };
+                            this.lastLocation = location;
                             resolve(location);
                         },
-                        (error) => {
-                            console.error('Location error:', error);
-                            reject('Unable to get your location. Please enable location services.');
+                        error => {
+                            reject(error.message);
                         },
-                        options
+                        { 
+                            enableHighAccuracy: true, 
+                            timeout: this.sessionData?.locationTimeout || 10000 
+                        }
                     );
                 });
             },
 
-            calculateDistance: function(point1, point2) {
-                const R = 6371e3; // Earth's radius in meters
-                const φ1 = point1.lat * Math.PI/180;
-                const φ2 = point2.lat * Math.PI/180;
-                const Δφ = (point2.lat - point1.lat) * Math.PI/180;
-                const Δλ = (point2.lng - point1.lng) * Math.PI/180;
-
+            calculateDistance: function(studentLoc, classLoc) {
+                if (!classLoc || !studentLoc) return Infinity;
+                
+                const R = 6371e3;
+                const φ1 = studentLoc.lat * Math.PI/180;
+                const φ2 = classLoc.lat * Math.PI/180;
+                const Δφ = (classLoc.lat - studentLoc.lat) * Math.PI/180;
+                const Δλ = (classLoc.lng - studentLoc.lng) * Math.PI/180;
+                
                 const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
                           Math.cos(φ1) * Math.cos(φ2) *
                           Math.sin(Δλ/2) * Math.sin(Δλ/2);
                 const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
-                return R * c; // Distance in meters
-            },
-
-            setupSessionListeners: function() {
-                // Listen for session updates
-                window.dbOnValue(this.sessionRef, (snapshot) => {
-                    const data = snapshot.val();
-                    
-                    if (!data || !data.active) {
-                        this.showClosedSession();
-                        return;
-                    }
-                    
-                    this.sessionData = data;
-                });
                 
-                window.dbOnValue(this.attendeesRef, (snapshot) => {
-                    const attendees = snapshot.val() || {};
-                    const attendeeList = Object.values(attendees);
-                    
-                    if (this.sessionData) {
-                        this.sessionData.attendees = attendeeList;
-                        this.updateAttendanceCount();
-                    }
-                });
-            },
-
-            handleConnectionLost: function() {
-                this.showMessage('Connection lost. Please check your internet connection.', 'danger');
-                this.updateConnectionStatus('error');
-                
-                // Clear any existing reconnection attempt
-                if (this.reconnectionTimeout) {
-                    clearTimeout(this.reconnectionTimeout);
-                }
-                
-                // Try to reconnect after delay
-                this.reconnectionTimeout = setTimeout(() => {
-                    this.attemptReconnection();
-                }, 5000);
-
-                // Save current state
-                this.saveState();
-            },
-
-            handleConnectionRestored: function() {
-                this.updateConnectionStatus('connected');
-                this.showMessage('Connection restored!', 'success');
-                
-                // Clear any pending reconnection attempts
-                if (this.reconnectionTimeout) {
-                    clearTimeout(this.reconnectionTimeout);
-                    this.reconnectionTimeout = null;
-                }
-                
-                // Restore state and verify session
-                this.restoreState();
-                this.verifySessionState();
-            },
-
-            attemptReconnection: async function() {
-                if (!window.dbConnected) {
-                    this.showMessage('Still trying to reconnect...', 'info');
-                    this.updateConnectionStatus('connecting');
-                    
-                    // Test database connection
-                    try {
-                        const testRef = window.dbRef(window.database, '.info/connected');
-                        const snapshot = await window.dbGet(testRef);
-                        if (snapshot.val()) {
-                            window.dbConnected = true;
-                            this.handleConnectionRestored();
-                            return;
-                        }
-                    } catch (error) {
-                        console.error('Connection test failed:', error);
-                    }
-                    
-                    // Schedule another attempt
-                    this.reconnectionTimeout = setTimeout(() => {
-                        this.attemptReconnection();
-                    }, 5000);
-                    return;
-                }
-                
-                try {
-                    // Verify session is still valid
-                    const sessionSnap = await window.dbGet(this.sessionRef);
-                    const sessionData = sessionSnap.val();
-                    
-                    if (!sessionData || !sessionData.active) {
-                        this.showClosedSession();
-                        return;
-                    }
-                    
-                    // Restore session state
-                    this.sessionData = sessionData;
-                    this.setupSessionListeners();
-                    this.showActiveSession();
-                    
-                } catch (error) {
-                    console.error('Reconnection failed:', error);
-                    // Schedule another attempt
-                    this.reconnectionTimeout = setTimeout(() => {
-                        this.attemptReconnection();
-                    }, 5000);
-                }
-            },
-
-            saveState: function() {
-                if (this.sessionData && this.currentToken) {
-                    try {
-                        const state = {
-                            sessionId: this.currentSessionId,
-                            token: this.currentToken,
-                            timestamp: Date.now()
-                        };
-                        sessionStorage.setItem('formState', JSON.stringify(state));
-                    } catch (error) {
-                        console.error('Failed to save state:', error);
-                    }
-                }
-            },
-
-            restoreState: function() {
-                try {
-                    const stateStr = sessionStorage.getItem('formState');
-                    if (stateStr) {
-                        const state = JSON.parse(stateStr);
-                        // Only restore if state is less than 5 minutes old
-                        if (Date.now() - state.timestamp < 300000) {
-                            this.currentSessionId = state.sessionId;
-                            this.currentToken = state.token;
-                            
-                            // Update URL with token if not present
-                            const urlParams = new URLSearchParams(window.location.search);
-                            if (!urlParams.has('token') && this.currentToken) {
-                                const newUrl = new URL(window.location.href);
-                                newUrl.searchParams.set('token', this.currentToken);
-                                window.history.replaceState({}, '', newUrl);
-                            }
-                            
-                            return true;
-                        }
-                        sessionStorage.removeItem('formState');
-                    }
-                } catch (error) {
-                    console.error('Failed to restore state:', error);
-                }
-                return false;
-            },
-
-            verifySessionState: async function() {
-                try {
-                    // Get fresh session data
-                    const sessionSnap = await window.dbGet(this.sessionRef);
-                    const sessionData = sessionSnap.val();
-                    
-                    if (!sessionData || !sessionData.active) {
-                        this.showClosedSession();
-                        return;
-                    }
-                    
-                    // Check if our token is still valid
-                    if (this.currentToken) {
-                        const isValid = await this.verifyToken(this.currentToken);
-                        if (!isValid) {
-                            // Token is invalid, try to get a new one
-                            this.currentToken = null;
-                            const newUrl = new URL(window.location.href);
-                            newUrl.searchParams.delete('token');
-                            window.history.replaceState({}, '', newUrl);
-                            await this.requestNewToken();
-                            return;
-                        }
-                    }
-                    
-                    // Update session data and continue
-                    this.sessionData = sessionData;
-                    this.showActiveSession();
-                    this.setupSessionListeners();
-                    
-                } catch (error) {
-                    console.error('Failed to verify session state:', error);
-                    this.showMessage('Failed to verify session state. Please refresh the page.', 'danger');
-                }
-            },
-
-            cleanup: function() {
-                // Clear all timeouts
-                if (this.connectionTimeout) clearTimeout(this.connectionTimeout);
-                if (this.reconnectionTimeout) clearTimeout(this.reconnectionTimeout);
-                
-                // Remove all listeners
-                if (this.sessionRef) window.dbOff(this.sessionRef);
-                if (this.attendeesRef) window.dbOff(this.attendeesRef);
-                
-                // Clear session data
-                this.sessionData = null;
-                this.currentToken = null;
-            },
-
-            handlePageHidden: function() {
-                // Page is hidden (tab switched, minimized, etc)
-                this.updateConnectionStatus('connecting');
-                
-                // Remove real-time listeners to save resources
-                if (this.sessionRef) window.dbOff(this.sessionRef);
-                if (this.attendeesRef) window.dbOff(this.attendeesRef);
-            },
-
-            handlePageVisible: function() {
-                // Page is visible again
-                if (!window.dbConnected) {
-                    this.handleConnectionLost();
-                    return;
-                }
-                
-                // Verify session state and restore listeners
-                this.verifySessionState();
+                return R * c;
             }
         };
 
         document.addEventListener('DOMContentLoaded', function() {
-            const form = document.getElementById('attendanceForm');
-            if (form) {
-                form.addEventListener('submit', async function(e) {
-                    e.preventDefault();
-                    await formApp.submitAttendance();
-                });
-            }
-
             formApp.init();
-            
-            // Add cleanup handlers
-            window.addEventListener('beforeunload', function() {
-                formApp.cleanup();
-            });
-            
-            window.addEventListener('unload', function() {
-                formApp.cleanup();
-            });
-            
-            // Handle visibility change
-            document.addEventListener('visibilitychange', function() {
-                if (document.hidden) {
-                    formApp.handlePageHidden();
-                } else {
-                    formApp.handlePageVisible();
-                }
-            });
         });
     </script>
 </body>
