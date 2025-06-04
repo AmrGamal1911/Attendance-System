@@ -187,33 +187,6 @@
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
             outline: none;
         }
-
-        select {
-            width: 100%;
-            padding: 0.875rem 1rem;
-            border: 2px solid #e5e7eb;
-            border-radius: var(--border-radius);
-            font-size: 1rem;
-            transition: all 0.3s ease;
-            background-color: white;
-            cursor: pointer;
-            appearance: none;
-            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
-            background-position: right 0.5rem center;
-            background-repeat: no-repeat;
-            background-size: 1.5em 1.5em;
-            padding-right: 2.5rem;
-        }
-
-        select:focus {
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-            outline: none;
-        }
-
-        #manualLocationField input {
-            width: calc(50% - 5px);
-        }
         
         .btn {
             background: var(--gradient);
@@ -373,29 +346,13 @@
                 
                 <form id="attendanceForm">
                     <div class="form-group">
-                        <label for="role"><i class="fas fa-user-tag"></i> Role</label>
-                        <select id="role" name="role" required class="form-control">
-                            <option value="student">Student</option>
-                            <option value="ta">Teaching Assistant</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="student_id"><i class="fas fa-id-card"></i> ID</label>
+                        <label for="student_id"><i class="fas fa-id-card"></i> Student ID</label>
                         <input type="text" id="student_id" name="student_id" placeholder="Enter your university ID" required>
                     </div>
                     
                     <div id="passwordField" class="form-group hidden">
                         <label for="password"><i class="fas fa-lock"></i> Session Password</label>
                         <input type="password" id="password" name="password" placeholder="Enter session password">
-                    </div>
-
-                    <div id="manualLocationField" class="form-group hidden">
-                        <label><i class="fas fa-map-marker-alt"></i> Location</label>
-                        <div style="display: flex; gap: 10px;">
-                            <input type="number" id="latitude" name="latitude" placeholder="Latitude" step="any">
-                            <input type="number" id="longitude" name="longitude" placeholder="Longitude" step="any">
-                        </div>
                     </div>
                     
                     <button type="submit" class="btn" id="submitBtn">
@@ -429,9 +386,11 @@
             lastLocation: null,
             locationAttempts: 0,
             maxLocationAttempts: 2,
+            currentToken: null,
 
             init: function() {
                 this.currentSessionId = new URLSearchParams(window.location.search).get('session');
+                this.currentToken = this.generateToken();
                 
                 if (!this.currentSessionId) {
                     this.showNoSession();
@@ -444,12 +403,11 @@
                     e.preventDefault();
                     this.submitAttendance();
                 });
+            },
 
-                // Add role change event listener
-                document.getElementById('role').addEventListener('change', (e) => {
-                    const isTA = e.target.value === 'ta';
-                    document.getElementById('manualLocationField').classList.toggle('hidden', !isTA);
-                });
+            generateToken: function() {
+                // Generate a unique token for this device/session
+                return 'token_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now().toString(36);
             },
 
             initializeSession: function() {
@@ -555,10 +513,9 @@
             async submitAttendance() {
                 const studentId = document.getElementById('student_id').value.trim().toUpperCase();
                 const password = document.getElementById('password')?.value;
-                const role = document.getElementById('role').value;
                 
                 if (!studentId) {
-                    this.showMessage('Please enter your ID', 'danger');
+                    this.showMessage('Please enter your student ID', 'danger');
                     return;
                 }
 
@@ -567,63 +524,99 @@
                     return;
                 }
                 
-                // Location verification
+                // Location verification with retry logic
                 if (this.sessionData.useLocation && this.sessionData.classLocation) {
+                    this.locationAttempts = 0;
                     let locationVerified = false;
-                    let studentLocation;
 
-                    if (role === 'ta') {
-                        // Get manual location input for TAs
-                        const latitude = parseFloat(document.getElementById('latitude').value);
-                        const longitude = parseFloat(document.getElementById('longitude').value);
-                        
-                        if (isNaN(latitude) || isNaN(longitude)) {
-                            this.showMessage('Please enter valid location coordinates', 'danger');
-                            return;
+                    // For students only - TAs don't need location verification
+                    if (!this.isTA()) {
+                        while (this.locationAttempts < this.maxLocationAttempts && !locationVerified) {
+                            try {
+                                const studentLocation = await this.getFreshLocation();
+                                if (!studentLocation) {
+                                    throw new Error('Could not get location');
+                                }
+
+                                // Check location accuracy
+                                if (studentLocation.accuracy > 50) {
+                                    throw new Error('Location accuracy too low');
+                                }
+
+                                const distance = this.calculateDistance(
+                                    studentLocation,
+                                    this.sessionData.classLocation
+                                );
+
+                                const accuracyBuffer = studentLocation.accuracy + 10; // Add 10m buffer
+                                const maxAllowedDistance = this.sessionData.locationDistance + accuracyBuffer;
+
+                                if (distance > maxAllowedDistance) {
+                                    this.showMessage(`You must be within ${this.sessionData.locationDistance}m of the class (approximately ${Math.round(distance)}m away)`, 'danger');
+                                    throw new Error('Not within allowed distance');
+                                }
+
+                                locationVerified = true;
+                            } catch (error) {
+                                this.locationAttempts++;
+                                console.error('Location attempt failed:', error);
+
+                                if (this.locationAttempts >= this.maxLocationAttempts) {
+                                    this.showMessage('Location verification failed after multiple attempts', 'danger');
+                                    throw error;
+                                }
+                                await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retry
+                            }
                         }
 
-                        studentLocation = {
-                            lat: latitude,
-                            lng: longitude,
-                            accuracy: 10 // Assuming high accuracy for manual input
-                        };
-                        locationVerified = true;
-                    } else {
-                        // Get automatic location for students
-                        try {
-                            studentLocation = await this.getFreshLocation();
-                            if (!studentLocation) {
-                                throw new Error('Could not get location');
-                            }
-                            
-                            // Check location accuracy
-                            if (studentLocation.accuracy > 50) {
-                                this.showMessage('Location accuracy too low. Please ensure your GPS is enabled and try again.', 'danger');
-                                return;
-                            }
-                            
-                            locationVerified = true;
-                        } catch (error) {
-                            console.error('Location error:', error);
-                            this.showMessage('Failed to get location. Please ensure location access is enabled.', 'danger');
-                            return;
+                        if (!locationVerified) {
+                            this.showMessage('Location verification failed', 'danger');
+                            throw new Error('Location verification failed');
                         }
                     }
+                }
+                
+                // Token verification
+                const tokenPath = `sessions/${this.currentSessionId}/tokens/${this.currentToken}`;
+                const tokenSnap = await window.dbGet(window.dbRef(window.database, tokenPath));
+                const tokenData = tokenSnap.val();
+                const currentIP = await fetch('https://api.ipify.org?format=json').then(r => r.json()).then(data => data.ip).catch(() => 'unknown');
 
-                    if (locationVerified) {
-                        const distance = this.calculateDistance(
-                            studentLocation, 
-                            this.sessionData.classLocation
-                        );
-                        
-                        const accuracyBuffer = studentLocation.accuracy + 10; // Add 10m buffer
-                        const maxAllowedDistance = this.sessionData.locationDistance + accuracyBuffer;
-                        
-                        if (distance > maxAllowedDistance) {
-                            this.showMessage(`You must be within ${this.sessionData.locationDistance}m of the class (approximately ${Math.round(distance)}m away)`, 'danger');
-                            return;
-                        }
+                let isTokenMisused = false;
+                let originalStudentId = tokenData?.id;
+                let isSecondUser = false;
+
+                if (!tokenData) {
+                    // First time using this token - initialize it
+                    await window.dbSet(window.dbRef(window.database, tokenPath), {
+                        id: studentId,
+                        ip: currentIP,
+                        timestamp: Date.now(),
+                        used: false,
+                        flagged: false
+                    });
+                } else {
+                    // Check if token was already used for a different student
+                    if (tokenData.used && tokenData.id !== studentId) {
+                        isTokenMisused = true;
+                        isSecondUser = true;
+                    } else if (!tokenData.used && tokenData.id !== studentId) {
+                        isTokenMisused = true;
+                        isSecondUser = true;
+                    } else if (!tokenData.used && tokenData.id === studentId) {
+                        // Acceptable case
+                    } else if (tokenData.used && tokenData.id === studentId) {
+                        // Re-scanning self again - acceptable
                     }
+                }
+
+                if (isTokenMisused && isSecondUser) {
+                    // Flag token
+                    await window.dbSet(window.dbRef(window.database, tokenPath + "/flagged"), true);
+                    await window.dbSet(window.dbRef(window.database, tokenPath + "/secondStudentId"), studentId);
+
+                    this.showMessage("⚠️ Token already used by another student. Attendance not counted.", "danger");
+                    return; // DO NOT submit attendance
                 }
                 
                 const attendeeSnap = await window.dbGet(this.attendeesRef);
@@ -639,12 +632,12 @@
                     this.sessionData.roster.find(s => s.id.toUpperCase() === studentId) : null;
                 
                 if (!student) {
-                    this.showMessage('ID not found in roster', 'danger');
+                    this.showMessage('Student ID not found in roster', 'danger');
                     return;
                 }
                 
                 if (attendeeList.some(a => a.id.toUpperCase() === studentId)) {
-                    this.showMessage('Attendance already recorded for this ID', 'danger');
+                    this.showMessage('Attendance already recorded for this student', 'danger');
                     return;
                 }
                 
@@ -653,19 +646,38 @@
                 submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
                 
                 try {
-                    const attendeeRef = window.dbPush(this.attendeesRef);
-                    await window.dbSet(attendeeRef, {
-                        id: studentId,
+                    // Get student's IP address
+                    const ipAddress = await fetch('https://api.ipify.org?format=json')
+                        .then(res => res.json())
+                        .then(data => data.ip)
+                        .catch(() => 'unknown');
+
+                    const newAttendee = {
+                        id: student.id,
                         name: student.name,
-                        role: role,
-                        timestamp: Date.now()
-                    });
+                        section: student.section || '',
+                        timestamp: Date.now(),
+                        ip: ipAddress,
+                        token: this.currentToken
+                    };
                     
-                    this.showMessage('Attendance recorded successfully!', 'success');
-                    document.getElementById('attendanceForm').reset();
+                    await window.dbPush(this.attendeesRef, newAttendee);
+                    
+                    // Mark token as used
+                    await window.dbSet(window.dbRef(window.database, tokenPath + "/used"), true);
+                    await window.dbSet(window.dbRef(window.database, tokenPath + "/id"), student.id);
+                    
+                    this.showMessage(`Attendance recorded successfully for ${student.name}!`, 'success');
+                    document.getElementById('student_id').value = '';
+                    if (password) document.getElementById('password').value = '';
+                    
+                    setTimeout(() => {
+                        this.showMessage('', 'success');
+                    }, 3000);
+                    
                 } catch (error) {
-                    console.error('Submit error:', error);
-                    this.showMessage('Failed to record attendance. Please try again.', 'danger');
+                    console.error('Error submitting attendance:', error);
+                    this.showMessage('Failed to submit attendance. Please try again.', 'danger');
                 } finally {
                     submitBtn.disabled = false;
                     submitBtn.innerHTML = '<i class="fas fa-check-circle"></i> Submit Attendance';
@@ -716,6 +728,12 @@
                         return;
                     }
                     
+                    // Use cached location if recent (within 30 seconds)
+                    if (this.lastLocation && Date.now() - this.lastLocation.timestamp < 30000) {
+                        resolve(this.lastLocation);
+                        return;
+                    }
+                    
                     navigator.geolocation.getCurrentPosition(
                         position => {
                             const location = {
@@ -753,6 +771,10 @@
                 const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
                 
                 return R * c;
+            },
+
+            isTA: function() {
+                return this.sessionData.userRole === 'ta';
             }
         };
 
