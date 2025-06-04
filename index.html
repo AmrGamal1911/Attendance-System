@@ -22,7 +22,7 @@
 
     <script type="module">
         import { initializeApp, getApps } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
-        import { getDatabase, ref, onValue, push, off, set, get, serverTimestamp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
+        import { getDatabase, ref, onValue, push, off, set, get, serverTimestamp, runTransaction } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
 
         try {
             const firebaseConfig = {
@@ -78,6 +78,7 @@
             window.dbOff = off;
             window.dbGet = get;
             window.dbServerTimestamp = serverTimestamp;
+            window.dbRunTransaction = runTransaction;
             window.dbConnected = true;
 
             // Verify database connection
@@ -1592,13 +1593,90 @@
                 document.getElementById(`sessionUrl_${sessionId}`).value = baseUrl;
             },
 
-            updateSessionDisplay: function(sessionData) {
-                const sessionId = sessionData.id;
-                document.getElementById(`attendedCount_${sessionId}`).textContent = sessionData.attendeeCount || 0;
-                document.getElementById(`progressFill_${sessionId}`).style.width = 
-                    `${(sessionData.attendeeCount / sessionData.maxAttendees) * 100}%`;
-                
-                this.updateAttendanceList(sessionData);
+            updateSessionDisplay: function(sessionId, sessionData) {
+                const sessionCard = document.getElementById(`sessionCard_${sessionId}`);
+                if (!sessionCard) return;
+
+                // Update basic info
+                document.getElementById(`currentSubject_${sessionId}`).textContent = sessionData.subject;
+                document.getElementById(`currentWeek_${sessionId}`).textContent = sessionData.week;
+
+                // Update attendance count
+                const attendeeCount = Object.keys(sessionData.attendees || {}).length;
+                document.getElementById(`attendeeCount_${sessionId}`).textContent = `${attendeeCount}/${sessionData.maxAttendees}`;
+
+                // Update token status
+                const availableCount = sessionData.availableTokens.length;
+                const usedCount = Object.values(sessionData.usedTokens || {})
+                    .filter(token => token.status === 'used').length;
+                const claimedCount = Object.values(sessionData.usedTokens || {})
+                    .filter(token => token.status === 'claimed').length;
+
+                document.getElementById(`tokenStatus_${sessionId}`).innerHTML = `
+                    <div class="token-stats">
+                        <div class="stat">
+                            <i class="fas fa-ticket-alt text-success"></i>
+                            Available: ${availableCount}
+                        </div>
+                        <div class="stat">
+                            <i class="fas fa-clock text-warning"></i>
+                            Claimed: ${claimedCount}
+                        </div>
+                        <div class="stat">
+                            <i class="fas fa-check-circle text-primary"></i>
+                            Used: ${usedCount}
+                        </div>
+                    </div>
+                `;
+
+                // Update session status
+                const statusElement = document.getElementById(`sessionStatus_${sessionId}`);
+                if (!sessionData.active) {
+                    statusElement.innerHTML = '<i class="fas fa-times-circle"></i> Session Closed';
+                    statusElement.className = 'session-status session-closed';
+                } else if (attendeeCount >= sessionData.maxAttendees) {
+                    statusElement.innerHTML = '<i class="fas fa-users-slash"></i> Session Full';
+                    statusElement.className = 'session-status session-full';
+                } else {
+                    statusElement.innerHTML = '<i class="fas fa-broadcast-tower"></i> Session Active';
+                    statusElement.className = 'session-status session-active';
+                }
+
+                // Update attendance list
+                const attendanceList = document.getElementById(`attendanceList_${sessionId}`);
+                if (attendanceList) {
+                    const attendees = Object.values(sessionData.attendees || {})
+                        .sort((a, b) => b.timestamp - a.timestamp);
+
+                    if (attendees.length === 0) {
+                        attendanceList.innerHTML = `
+                            <div class="text-center text-gray-500 py-4">
+                                <i class="fas fa-users opacity-50 text-3xl mb-2"></i>
+                                <p>Waiting for students to join...</p>
+                            </div>
+                        `;
+                    } else {
+                        attendanceList.innerHTML = attendees.map(attendee => `
+                            <div class="attendance-item">
+                                <div class="student-info">
+                                    <strong>${attendee.name}</strong>
+                                    <span class="text-gray-500">${attendee.id}</span>
+                                </div>
+                                <div class="attendance-meta">
+                                    <span class="timestamp">
+                                        <i class="fas fa-clock"></i>
+                                        ${new Date(attendee.timestamp).toLocaleTimeString()}
+                                    </span>
+                                    ${attendee.isFromTaIp ? 
+                                        '<span class="badge badge-warning">Same IP as TA</span>' : ''}
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+                }
+
+                // Save session state
+                this.saveSessionToLocal(sessionData);
             },
 
             updateAttendanceList: function(sessionData) {
@@ -1797,8 +1875,34 @@
 
             endSession: async function(sessionId) {
                 try {
-                    const sessionRef = window.dbRef(window.database, `sessions/${sessionId}/active`);
-                    await window.dbSet(sessionRef, false);
+                    const sessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
+                    
+                    // Use transaction to ensure atomic update
+                    await window.dbRunTransaction(sessionRef, (currentData) => {
+                        if (!currentData || !currentData.active) return;
+
+                        // Move any claimed but unused tokens back to available
+                        const usedTokens = { ...currentData.usedTokens };
+                        const claimedTokens = Object.entries(usedTokens)
+                            .filter(([_, data]) => data.status === 'claimed')
+                            .map(([token]) => token);
+
+                        const availableTokens = [
+                            ...currentData.availableTokens,
+                            ...claimedTokens
+                        ];
+
+                        claimedTokens.forEach(token => delete usedTokens[token]);
+
+                        return {
+                            ...currentData,
+                            active: false,
+                            availableTokens,
+                            usedTokens,
+                            endedAt: window.dbServerTimestamp()
+                        };
+                    });
+
                     this.showMessage('Session ended successfully.', 'success');
 
                     // Update local session object
@@ -1808,31 +1912,9 @@
                         this.updateSessionHistory(this.currentSessions[sessionIndex]);
                     }
 
-                    // Update UI in main dashboard if session card exists
-                    const sessionCard = document.getElementById(`sessionCard_${sessionId}`);
-                    if (sessionCard) {
-                        sessionCard.innerHTML = `
-                            <div class="session-status session-inactive">
-                                <i class="fas fa-calendar-times"></i>
-                                <span>Session Ended</span>
-                            </div>
-
-                            <div class="session-feedback">
-                                <h2><i class="fas fa-check-circle"></i> Session Ended</h2>
-                                <p>This attendance session has ended.</p>
-                                <p>You can export the attendance report below.</p>
-
-                                <button onclick="app.exportAttendanceReport('${sessionId}')" class="btn btn-success mt-3">
-                                    <i class="fas fa-download"></i> Export Final Report
-                                </button>
-                            </div>
-                        `;
-                    }
-
-                    this.clearSessionInputs();
                 } catch (error) {
                     console.error('Error ending session:', error);
-                    this.showMessage('Failed to end session.', 'danger');
+                    this.showMessage('Failed to end session. Please try again.', 'danger');
                 }
             },
 
@@ -2231,7 +2313,7 @@
                 for (let i = 0; i < maxAttendees; i++) {
                     // Generate a more secure token with timestamp and random components
                     const timestamp = Date.now();
-                    const random = Math.random().toString(36).substring(2);
+                    const random = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
                     const token = `${timestamp}_${random}_${i}`;
                     tokens.push(token);
                 }
@@ -2247,31 +2329,39 @@
                     }
 
                     const subject = document.getElementById('subject').value.trim();
-                    const week = document.getElementById('week').value.trim();
+                    const week = parseInt(document.getElementById('week').value);
                     const maxAttendees = parseInt(document.getElementById('maxAttendees').value);
                     const password = document.getElementById('password').value.trim();
                     const taEmail = document.getElementById('ta_email').value.trim();
                     
-                    if (!subject || !week || isNaN(maxAttendees) || maxAttendees <= 0 || !taEmail) {
+                    if (!subject || isNaN(week) || week < 1 || week > 52 || 
+                        isNaN(maxAttendees) || maxAttendees < 1 || maxAttendees > 500 || !taEmail) {
                         this.showMessage('Please fill all required fields correctly', 'danger');
                         return;
                     }
 
+                    // Get TA's IP address for validation
+                    const taIpAddress = await fetch('https://api.ipify.org?format=json')
+                        .then(r => r.json())
+                        .then(data => data.ip)
+                        .catch(() => 'unknown');
+
+                    // Generate session ID with timestamp for uniqueness
+                    const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2)}`;
+                    
                     // Generate tokens
-                    const tokens = [];
-                    for (let i = 0; i < maxAttendees; i++) {
-                        tokens.push(this.generateToken());
-                    }
+                    const sessionTokens = this.generateSessionTokens(maxAttendees);
 
                     // Create session data
                     const sessionData = {
+                        id: sessionId,
                         subject: subject,
                         week: week,
                         maxAttendees: maxAttendees,
                         password: password || null,
                         active: true,
                         createdAt: window.dbServerTimestamp(),
-                        availableTokens: tokens,
+                        availableTokens: sessionTokens,
                         usedTokens: {},
                         attendees: {},
                         taEmail: taEmail
