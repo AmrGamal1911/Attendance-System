@@ -9,7 +9,7 @@
     
     <script type="module">
         import { initializeApp, getApps } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
-        import { getDatabase, ref, onValue, push, off, set, get, serverTimestamp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
+        import { getDatabase, ref, onValue, push, off, set, get, serverTimestamp, runTransaction } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
 
         try {
             const firebaseConfig = {
@@ -33,6 +33,12 @@
             }
 
             const database = getDatabase(app);
+
+            // Enable offline persistence
+            const dbRef = ref(database);
+            await set(dbRef, {
+                '.info/connected': true
+            });
 
             // Set up persistent connection monitoring with retry
             const setupConnectionMonitoring = () => {
@@ -65,22 +71,35 @@
             window.dbOff = off;
             window.dbGet = get;
             window.dbServerTimestamp = serverTimestamp;
+            window.dbRunTransaction = runTransaction;
             window.dbConnected = true;
 
-            // Verify database connection
-            const testRef = ref(database, '.info/connected');
-            get(testRef).then(snapshot => {
-                if (!snapshot.val()) {
-                    throw new Error('Database connection failed');
+            // Verify database connection with retry
+            const verifyConnection = async (retryCount = 0) => {
+                try {
+                    const testRef = ref(database, '.info/connected');
+                    const snapshot = await get(testRef);
+                    
+                    if (!snapshot.val() && retryCount < 3) {
+                        console.log('Retrying connection...');
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        return verifyConnection(retryCount + 1);
+                    }
+                    
+                    if (!snapshot.val()) {
+                        throw new Error('Database connection failed');
+                    }
+                } catch (error) {
+                    console.error('Database connection test failed:', error);
+                    window.dbConnected = false;
+                    if (window.formApp) {
+                        window.formApp.showMessage('Failed to connect to database. Please check your internet connection.', 'danger');
+                        window.formApp.updateConnectionStatus('error');
+                    }
                 }
-            }).catch(error => {
-                console.error('Database connection test failed:', error);
-                window.dbConnected = false;
-                if (window.formApp) {
-                    window.formApp.showMessage('Failed to connect to database. Please check your internet connection.', 'danger');
-                    window.formApp.updateConnectionStatus('error');
-                }
-            });
+            };
+
+            await verifyConnection();
 
         } catch (error) {
             console.error('Firebase initialization error:', error);
@@ -508,39 +527,52 @@
                     // Update status
                     document.getElementById('connectionStatus').textContent = 'Verifying session...';
 
-                    // Check if session exists with timeout
-                    Promise.race([
-                        window.dbGet(this.sessionRef),
-                        new Promise((_, reject) => 
-                            setTimeout(() => reject(new Error('Connection timeout')), 10000)
-                        )
-                    ]).then(snapshot => {
-                        const data = snapshot.val();
-                        
-                        if (!data) {
-                            clearTimeout(this.connectionTimeout);
-                            this.showNoSession();
-                            return;
-                        }
+                    // Check if session exists with retry
+                    const verifySession = async (retryCount = 0) => {
+                        try {
+                            const snapshot = await window.dbGet(this.sessionRef);
+                            const data = snapshot.val();
+                            
+                            if (!data && retryCount < 3) {
+                                console.log('Retrying session verification...');
+                                await new Promise(resolve => setTimeout(resolve, 2000));
+                                return verifySession(retryCount + 1);
+                            }
+                            
+                            if (!data) {
+                                clearTimeout(this.connectionTimeout);
+                                this.showNoSession();
+                                return;
+                            }
 
-                        if (!data.active) {
-                            clearTimeout(this.connectionTimeout);
-                            this.showClosedSession();
-                            return;
-                        }
+                            if (!data.active) {
+                                clearTimeout(this.connectionTimeout);
+                                this.showClosedSession();
+                                return;
+                            }
 
-                        // Session exists and is active
-                        this.sessionData = data;
-                        document.getElementById('connectionStatus').textContent = 'Requesting attendance slot...';
-                        
-                        // Request token
-                        this.requestNewToken();
-                    }).catch(error => {
-                        console.error('Error checking session:', error);
-                        this.showMessage('Failed to verify session. Please check your connection and try again.', 'danger');
-                        this.updateConnectionStatus('error');
-                        clearTimeout(this.connectionTimeout);
-                    });
+                            // Session exists and is active
+                            this.sessionData = data;
+                            document.getElementById('connectionStatus').textContent = 'Requesting attendance slot...';
+                            
+                            // Request token
+                            await this.requestNewToken();
+                            
+                        } catch (error) {
+                            if (retryCount < 3) {
+                                console.log('Retrying after error:', error);
+                                await new Promise(resolve => setTimeout(resolve, 2000));
+                                return verifySession(retryCount + 1);
+                            }
+                            
+                            console.error('Error checking session:', error);
+                            this.showMessage('Failed to verify session. Please check your connection and try again.', 'danger');
+                            this.updateConnectionStatus('error');
+                            clearTimeout(this.connectionTimeout);
+                        }
+                    };
+
+                    verifySession();
 
                 } catch (error) {
                     console.error('Firebase initialization error:', error);
@@ -552,24 +584,43 @@
 
             async verifyToken(token) {
                 try {
-                    const sessionSnap = await window.dbGet(this.sessionRef);
-                    const sessionData = sessionSnap.val();
+                    const verifyTokenWithRetry = async (retryCount = 0) => {
+                        try {
+                            const sessionSnap = await window.dbGet(this.sessionRef);
+                            const sessionData = sessionSnap.val();
 
-                    if (!sessionData || !sessionData.active) {
-                        return false;
-                    }
+                            if (!sessionData && retryCount < 3) {
+                                console.log('Retrying token verification...');
+                                await new Promise(resolve => setTimeout(resolve, 2000));
+                                return verifyTokenWithRetry(retryCount + 1);
+                            }
 
-                    // Check if token exists in available tokens
-                    if (sessionData.availableTokens && sessionData.availableTokens.includes(token)) {
-                        return true;
-                    }
+                            if (!sessionData || !sessionData.active) {
+                                return false;
+                            }
 
-                    // Check if token has been used
-                    if (sessionData.usedTokens && sessionData.usedTokens[token]) {
-                        return false;
-                    }
+                            // Check if token exists in available tokens
+                            if (sessionData.availableTokens && sessionData.availableTokens.includes(token)) {
+                                return true;
+                            }
 
-                    return false;
+                            // Check if token has been used
+                            if (sessionData.usedTokens && sessionData.usedTokens[token]) {
+                                return false;
+                            }
+
+                            return false;
+                        } catch (error) {
+                            if (retryCount < 3) {
+                                console.log('Retrying after error:', error);
+                                await new Promise(resolve => setTimeout(resolve, 2000));
+                                return verifyTokenWithRetry(retryCount + 1);
+                            }
+                            throw error;
+                        }
+                    };
+
+                    return await verifyTokenWithRetry();
                 } catch (error) {
                     console.error('Error verifying token:', error);
                     return false;
@@ -578,54 +629,92 @@
 
             async requestNewToken() {
                 try {
-                    // Get fresh session data with timeout
-                    const sessionSnap = await Promise.race([
-                        window.dbGet(this.sessionRef),
-                        new Promise((_, reject) => 
-                            setTimeout(() => reject(new Error('Connection timeout')), 10000)
-                        )
-                    ]);
-                    
-                    const sessionData = sessionSnap.val();
+                    // Get current device fingerprint for rate limiting
+                    const deviceData = {
+                        userAgent: navigator.userAgent,
+                        language: navigator.language,
+                        platform: navigator.platform,
+                        screenResolution: `${window.screen.width}x${window.screen.height}`,
+                        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+                    };
+                    const deviceHash = this.hashCode(JSON.stringify(deviceData));
 
-                    if (!sessionData || !sessionData.active) {
-                        clearTimeout(this.connectionTimeout);
-                        this.showMessage('Session is no longer active', 'danger');
-                        this.showClosedSession();
-                        return false;
-                    }
+                    // Get current IP for rate limiting
+                    const currentIP = await fetch('https://api.ipify.org?format=json')
+                        .then(r => r.json())
+                        .then(data => data.ip)
+                        .catch(() => 'unknown');
 
-                    if (!sessionData.availableTokens || sessionData.availableTokens.length === 0) {
-                        clearTimeout(this.connectionTimeout);
-                        this.showMessage('No attendance slots available. Session is full.', 'danger');
-                        return false;
-                    }
+                    // Reference to the session
+                    const sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
 
-                    // Try to claim a token with transaction
-                    const token = sessionData.availableTokens[0];
-                    const updatedTokens = sessionData.availableTokens.slice(1);
-
-                    // Update tokens atomically at the session level
-                    try {
-                        await window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/availableTokens`), updatedTokens);
-                        
-                        // Verify the token was claimed successfully
-                        const verifySnap = await window.dbGet(this.sessionRef);
-                        const verifyData = verifySnap.val();
-                        
-                        if (!verifyData || verifyData.availableTokens.includes(token)) {
-                            throw new Error('Token claim verification failed');
+                    // Try to claim a token using transaction
+                    const result = await window.dbRunTransaction(sessionRef, (currentData) => {
+                        // If session doesn't exist or is not active, abort
+                        if (!currentData || !currentData.active) {
+                            return;
                         }
+
+                        // Check if session is full
+                        if (!currentData.availableTokens || currentData.availableTokens.length === 0) {
+                            return;
+                        }
+
+                        // Check rate limits
+                        const now = Date.now();
+                        const recentTokens = Object.entries(currentData.usedTokens || {})
+                            .filter(([_, data]) => {
+                                return (data.deviceHash === deviceHash || data.ip === currentIP) && 
+                                       (now - data.timestamp) < 300000; // 5 minutes
+                            });
+
+                        if (recentTokens.length >= 3) {
+                            throw new Error('Rate limit exceeded');
+                        }
+
+                        // Get the first available token
+                        const token = currentData.availableTokens[0];
+                        const updatedTokens = currentData.availableTokens.slice(1);
+
+                        // Update the data atomically
+                        return {
+                            ...currentData,
+                            availableTokens: updatedTokens,
+                            usedTokens: {
+                                ...(currentData.usedTokens || {}),
+                                [token]: {
+                                    timestamp: now,
+                                    deviceHash: deviceHash,
+                                    ip: currentIP,
+                                    deviceData: deviceData,
+                                    status: 'claimed'  // Token is claimed but not yet used
+                                }
+                            }
+                        };
+                    });
+
+                    // If transaction was successful
+                    if (result) {
+                        // Find the token that was claimed
+                        const claimedToken = Object.entries(result.usedTokens)
+                            .find(([_, data]) => data.deviceHash === deviceHash && data.status === 'claimed');
+
+                        if (!claimedToken) {
+                            throw new Error('Failed to claim token');
+                        }
+
+                        const [token] = claimedToken;
 
                         // Store token and update URL
                         this.currentToken = token;
-                        this.sessionData = sessionData;
+                        this.sessionData = result;
                         
                         // Update URL with token without reloading the page
                         const newUrl = new URL(window.location.href);
                         newUrl.searchParams.set('token', token);
                         window.history.replaceState({}, '', newUrl);
 
+                        // Clear connection timeout and update UI
                         clearTimeout(this.connectionTimeout);
                         this.showActiveSession();
                         this.updateConnectionStatus('connected');
@@ -638,25 +727,21 @@
                         this.setupSessionListeners();
 
                         return true;
-
-                    } catch (error) {
-                        console.error('Token claim failed:', error);
-                        // Try to restore the token if something went wrong
-                        try {
-                            await window.dbSet(
-                                window.dbRef(window.database, `sessions/${this.currentSessionId}/availableTokens`),
-                                sessionData.availableTokens
-                            );
-                        } catch (restoreError) {
-                            console.error('Failed to restore token:', restoreError);
-                        }
-                        throw error;
                     }
+
+                    // If we get here, transaction failed
+                    throw new Error('Failed to claim token');
 
                 } catch (error) {
                     console.error('Error requesting token:', error);
                     clearTimeout(this.connectionTimeout);
-                    this.showMessage('Failed to get attendance slot. Please refresh the page.', 'danger');
+                    
+                    if (error.message === 'Rate limit exceeded') {
+                        this.showMessage('Too many attempts. Please wait a few minutes before trying again.', 'danger');
+                    } else {
+                        this.showMessage('Failed to get attendance slot. Please refresh the page.', 'danger');
+                    }
+                    
                     this.updateConnectionStatus('error');
                     return false;
                 }
@@ -769,91 +854,89 @@
                 const deviceHash = this.hashCode(JSON.stringify(deviceData));
 
                 try {
-                    // First verify if the token is still valid
-                    const sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
-                    const sessionSnap = await window.dbGet(sessionRef);
-                    const sessionData = sessionSnap.val();
-
-                    if (!sessionData || !sessionData.active) {
-                        this.showMessage('This session is no longer active', 'danger');
-                        this.showClosedSession();
-                        return;
-                    }
-
-                    // Check if token has been used
-                    if (sessionData.usedTokens && sessionData.usedTokens[this.currentToken]) {
-                        this.showMessage('This token has already been used. Please scan the QR code again.', 'danger');
-                        return;
-                    }
-
                     const currentIP = await fetch('https://api.ipify.org?format=json')
                         .then(r => r.json())
                         .then(data => data.ip)
                         .catch(() => 'unknown');
 
-                    // Check if student exists in roster
-                    const student = sessionData.roster.find(s => s.id.toUpperCase() === studentId);
-                    if (!student) {
-                        this.showMessage('Student ID not found in roster', 'danger');
-                        return;
-                    }
-
-                    // Check if student already submitted attendance
-                    const attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
-                    const attendeesSnap = await window.dbGet(attendeesRef);
-                    const attendees = attendeesSnap.val() || {};
-                    
-                    if (Object.values(attendees).some(a => a.id.toUpperCase() === studentId)) {
-                        this.showMessage('Attendance already recorded for this student', 'danger');
-                        return;
-                    }
-
-                    // Prepare the attendance record
-                    const newAttendee = {
-                        id: student.id,
-                        name: student.name,
-                        section: student.section || '',
-                        timestamp: Date.now(),
-                        ip: currentIP,
-                        token: this.currentToken,
-                        deviceHash: deviceHash,
-                        deviceData: deviceData,
-                        isFromTaIp: currentIP === sessionData.taIpAddress
-                    };
-
-                    // Update everything atomically
-                    const updates = {
-                        [`sessions/${this.currentSessionId}/usedTokens/${this.currentToken}`]: {
-                            id: studentId,
-                            ip: currentIP,
-                            timestamp: Date.now(),
-                            deviceHash: deviceHash,
-                            deviceData: deviceData
+                    // Use transaction to update token and add attendance
+                    const sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
+                    const result = await window.dbRunTransaction(sessionRef, (currentData) => {
+                        if (!currentData || !currentData.active) {
+                            throw new Error('Session is no longer active');
                         }
-                    };
 
-                    // Add the attendance record
-                    const newAttendeeRef = window.dbPush(attendeesRef);
-                    updates[`sessions/${this.currentSessionId}/attendees/${newAttendeeRef.key}`] = newAttendee;
+                        // Verify token status
+                        const tokenData = currentData.usedTokens?.[this.currentToken];
+                        if (!tokenData || tokenData.status !== 'claimed' || tokenData.deviceHash !== deviceHash) {
+                            throw new Error('Invalid or expired token');
+                        }
 
-                    // Perform the atomic update
-                    await window.dbSet(window.dbRef(window.database), updates);
-                    
-                    this.showMessage(`Attendance recorded successfully for ${student.name}!`, 'success');
-                    document.getElementById('student_id').value = '';
-                    if (password) document.getElementById('password').value = '';
-                    
-                    // Disable form after successful submission
-                    document.getElementById('attendanceForm').innerHTML = `
-                        <div class="alert alert-success">
-                            <i class="fas fa-check-circle"></i>
-                            Attendance recorded successfully!
-                        </div>
-                    `;
-                    
+                        // Check if student exists in roster
+                        const student = currentData.roster.find(s => s.id.toUpperCase() === studentId);
+                        if (!student) {
+                            throw new Error('Student ID not found in roster');
+                        }
+
+                        // Check if student already submitted attendance
+                        const hasAttended = Object.values(currentData.attendees || {}).some(a => a.id.toUpperCase() === studentId);
+                        if (hasAttended) {
+                            throw new Error('Attendance already recorded for this student');
+                        }
+
+                        // Prepare the attendance record
+                        const newAttendee = {
+                            id: student.id,
+                            name: student.name,
+                            section: student.section || '',
+                            timestamp: Date.now(),
+                            ip: currentIP,
+                            token: this.currentToken,
+                            deviceHash: deviceHash,
+                            deviceData: deviceData,
+                            isFromTaIp: currentIP === currentData.taIpAddress
+                        };
+
+                        // Generate a new attendee ID
+                        const attendeeId = `${Date.now()}_${Math.random().toString(36).substring(2)}`;
+
+                        // Update data atomically
+                        return {
+                            ...currentData,
+                            usedTokens: {
+                                ...currentData.usedTokens,
+                                [this.currentToken]: {
+                                    ...tokenData,
+                                    status: 'used',
+                                    studentId: student.id,
+                                    usedAt: Date.now()
+                                }
+                            },
+                            attendees: {
+                                ...(currentData.attendees || {}),
+                                [attendeeId]: newAttendee
+                            }
+                        };
+                    });
+
+                    if (result) {
+                        const student = result.roster.find(s => s.id.toUpperCase() === studentId);
+                        this.showMessage(`Attendance recorded successfully for ${student.name}!`, 'success');
+                        document.getElementById('student_id').value = '';
+                        if (password) document.getElementById('password').value = '';
+                        
+                        // Disable form after successful submission
+                        document.getElementById('attendanceForm').innerHTML = `
+                            <div class="alert alert-success">
+                                <i class="fas fa-check-circle"></i>
+                                Attendance recorded successfully!
+                            </div>
+                        `;
+                    }
+
                 } catch (error) {
                     console.error('Error submitting attendance:', error);
-                    this.showMessage('Failed to submit attendance. Please try again.', 'danger');
+                    this.showMessage(error.message || 'Failed to submit attendance. Please try again.', 'danger');
                 }
             },
 
