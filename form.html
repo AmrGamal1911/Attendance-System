@@ -10,6 +10,7 @@
     <script type="module">
         import { initializeApp, getApps } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
         import { getDatabase, ref, onValue, push, off, set, get, serverTimestamp, runTransaction } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
+        import { getAnalytics } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-analytics.js';
 
         const initFirebase = async () => {
             try {
@@ -18,7 +19,7 @@
                     authDomain: "eelu-attendance.firebaseapp.com",
                     databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
                     projectId: "eelu-attendance",
-                    storageBucket: "eelu-attendance.appspot.com",
+                    storageBucket: "eelu-attendance.firebasestorage.app",
                     messagingSenderId: "5132239076",
                     appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
                     measurementId: "G-D2WNX8RGRL"
@@ -32,6 +33,9 @@
                 } else {
                     app = apps[0];
                 }
+
+                // Initialize Analytics
+                const analytics = getAnalytics(app);
 
                 const database = getDatabase(app);
 
