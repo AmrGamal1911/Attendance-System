@@ -550,6 +550,32 @@
                 }
             },
 
+            async verifyToken(token) {
+                try {
+                    const sessionSnap = await window.dbGet(this.sessionRef);
+                    const sessionData = sessionSnap.val();
+
+                    if (!sessionData || !sessionData.active) {
+                        return false;
+                    }
+
+                    // Check if token exists in available tokens
+                    if (sessionData.availableTokens && sessionData.availableTokens.includes(token)) {
+                        return true;
+                    }
+
+                    // Check if token has been used
+                    if (sessionData.usedTokens && sessionData.usedTokens[token]) {
+                        return false;
+                    }
+
+                    return false;
+                } catch (error) {
+                    console.error('Error verifying token:', error);
+                    return false;
+                }
+            },
+
             async requestNewToken() {
                 try {
                     // Get fresh session data with timeout
@@ -591,9 +617,15 @@
                             throw new Error('Token claim verification failed');
                         }
 
-                        // Store token and show form
+                        // Store token and update URL
                         this.currentToken = token;
                         this.sessionData = sessionData;
+                        
+                        // Update URL with token without reloading the page
+                        const newUrl = new URL(window.location.href);
+                        newUrl.searchParams.set('token', token);
+                        window.history.replaceState({}, '', newUrl);
+
                         clearTimeout(this.connectionTimeout);
                         this.showActiveSession();
                         this.updateConnectionStatus('connected');
@@ -1009,7 +1041,7 @@
             },
 
             saveState: function() {
-                if (this.sessionData) {
+                if (this.sessionData && this.currentToken) {
                     try {
                         const state = {
                             sessionId: this.currentSessionId,
@@ -1032,6 +1064,15 @@
                         if (Date.now() - state.timestamp < 300000) {
                             this.currentSessionId = state.sessionId;
                             this.currentToken = state.token;
+                            
+                            // Update URL with token if not present
+                            const urlParams = new URLSearchParams(window.location.search);
+                            if (!urlParams.has('token') && this.currentToken) {
+                                const newUrl = new URL(window.location.href);
+                                newUrl.searchParams.set('token', this.currentToken);
+                                window.history.replaceState({}, '', newUrl);
+                            }
+                            
                             return true;
                         }
                         sessionStorage.removeItem('formState');
@@ -1055,10 +1096,14 @@
                     
                     // Check if our token is still valid
                     if (this.currentToken) {
-                        if (sessionData.usedTokens && sessionData.usedTokens[this.currentToken]) {
-                            // Our token was used by someone else
-                            this.showMessage('Your session token was invalidated. Please refresh the page.', 'danger');
+                        const isValid = await this.verifyToken(this.currentToken);
+                        if (!isValid) {
+                            // Token is invalid, try to get a new one
                             this.currentToken = null;
+                            const newUrl = new URL(window.location.href);
+                            newUrl.searchParams.delete('token');
+                            window.history.replaceState({}, '', newUrl);
+                            await this.requestNewToken();
                             return;
                         }
                     }
@@ -1066,6 +1111,7 @@
                     // Update session data and continue
                     this.sessionData = sessionData;
                     this.showActiveSession();
+                    this.setupSessionListeners();
                     
                 } catch (error) {
                     console.error('Failed to verify session state:', error);
