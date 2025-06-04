@@ -1281,7 +1281,7 @@
                             const sessionId = 'session_' + Date.now();
                             
                             // Generate predetermined tokens
-                            const sessionTokens = this.generateSessionTokens(maxAttendees);
+                            const sessionTokens = app.generateSessionTokens(maxAttendees);
                             
                             // Get TA's IP address
                             const taIpAddress = await fetch('https://api.ipify.org?format=json')
@@ -1306,8 +1306,8 @@
                                 existingWeeks: [...app.existingWeeks],
                                 maxExistingWeek: app.maxExistingWeek,
                                 taIpAddress: taIpAddress,
-                                availableTokens: sessionTokens, // Add all available tokens
-                                usedTokens: {} // Track used tokens
+                                availableTokens: sessionTokens,
+                                usedTokens: {}
                             };
                             
                             if (useLocation && app.classLocation) {
@@ -1320,13 +1320,11 @@
                                 app.saveSessionToLocal(newSession);
                                 
                                 const attendeesRef = window.dbRef(window.database, `sessions/${sessionId}/attendees`);
-                                const tokensRef = window.dbRef(window.database, `sessions/${sessionId}/tokens`);
                                 
                                 const sessionData = {
                                     ...newSession,
                                     sessionRef,
                                     attendeesRef,
-                                    tokensRef,
                                     syncStatus: 'connecting'
                                 };
                                 
@@ -1358,6 +1356,7 @@
                             }
                         } catch (error) {
                             console.error('Error:', error);
+                            app.showMessage('Failed to create session. Please try again.', 'danger');
                         }
                     };
 
@@ -1435,7 +1434,7 @@
                     <div class="form-group session-url">
                         <label><strong><i class="fas fa-link"></i> Student Access Link:</strong></label>
                         <div class="input-group">
-                            <input type="text" id="sessionUrl_${sessionId}" readonly>
+                            <input type="text" id="sessionUrl_${sessionId}" value="${sessionFormUrl}" readonly>
                             <button type="button" class="btn btn-secondary copy-btn" onclick="app.copyToClipboard('${sessionId}')">
                                 <i class="fas fa-copy"></i>
                             </button>
@@ -1465,13 +1464,12 @@
                 
                 sessionsContainer.appendChild(sessionCard);
                 
-                const formUrl = `${window.location.origin}/form.html?session=${sessionId}`;
                 const qr = qrcode(0, 'L');
-                qr.addData(formUrl);
+                qr.addData(sessionFormUrl);
                 qr.make();
                 document.getElementById(`qrcode_${sessionId}`).innerHTML = qr.createImgTag(5);
                 
-                document.getElementById(`sessionUrl_${sessionId}`).value = formUrl;
+                document.getElementById(`sessionUrl_${sessionId}`).value = sessionFormUrl;
             },
 
             updateSessionDisplay: function(sessionData) {
