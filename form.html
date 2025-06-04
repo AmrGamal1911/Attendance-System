@@ -520,16 +520,9 @@
             attendeesRef: null,
             lastLocation: null,
             locationAttempts: 0,
-            maxLocationAttempts: 2,
-            currentToken: null,
-            initialLoadTime: null,
-            connectionTimeout: null,
-            reconnectionTimeout: null,
+            maxLocationAttempts: 3,
 
             init: function() {
-                // First try to restore any saved state
-                this.restoreState();
-
                 if (!window.database || !window.dbRef || !window.dbGet) {
                     console.error('Firebase not initialized properly');
                     this.showMessage('Failed to initialize connection. Please refresh the page.', 'danger');
@@ -537,10 +530,8 @@
                     return;
                 }
 
-                // Get session ID from URL if not restored from state
-                if (!this.currentSessionId) {
-                    this.currentSessionId = new URLSearchParams(window.location.search).get('session');
-                }
+                // Get session ID from URL
+                this.currentSessionId = new URLSearchParams(window.location.search).get('session');
                 
                 if (!this.currentSessionId) {
                     this.showMessage('Invalid session', 'danger');
@@ -556,272 +547,129 @@
                     }
                 }, 15000);
 
-                // Update loading message
-                document.getElementById('loadingSection').innerHTML = `
-                    <div class="spinner"></div>
-                    <p id="connectionStatus">Initializing connection...</p>
-                `;
-
                 // Initialize Firebase and start session
                 this.initializeFirebase();
             },
 
             initializeFirebase: function() {
                 try {
-                    // Verify Firebase is ready
                     if (!window.database) {
                         throw new Error('Firebase database not initialized');
                     }
 
-                    // Initialize Firebase references
                     this.sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
                     this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
 
-                    // Update status
-                    document.getElementById('connectionStatus').textContent = 'Verifying session...';
-
-                    // Check if session exists with retry
-                    const verifySession = async (retryCount = 0) => {
-                        try {
-                            const snapshot = await window.dbGet(this.sessionRef);
-                            const data = snapshot.val();
-                            
-                            if (!data && retryCount < 3) {
-                                console.log('Retrying session verification...');
-                                await new Promise(resolve => setTimeout(resolve, 2000));
-                                return verifySession(retryCount + 1);
-                            }
-                            
-                            if (!data) {
-                                clearTimeout(this.connectionTimeout);
-                                this.showNoSession();
-                                return;
-                            }
-
-                            if (!data.active) {
-                                clearTimeout(this.connectionTimeout);
-                                this.showClosedSession();
-                                return;
-                            }
-
-                            // Session exists and is active
-                            this.sessionData = data;
-                            document.getElementById('connectionStatus').textContent = 'Requesting attendance slot...';
-                            
-                            // Request token
-                            await this.requestNewToken();
-                            
-                        } catch (error) {
-                            if (retryCount < 3) {
-                                console.log('Retrying after error:', error);
-                                await new Promise(resolve => setTimeout(resolve, 2000));
-                                return verifySession(retryCount + 1);
-                            }
-                            
-                            console.error('Error checking session:', error);
-                            this.showMessage('Failed to verify session. Please check your connection and try again.', 'danger');
-                            this.updateConnectionStatus('error');
-                            clearTimeout(this.connectionTimeout);
+                    // Check if session exists
+                    window.dbGet(this.sessionRef).then(snapshot => {
+                        const data = snapshot.val();
+                        
+                        if (!data) {
+                            this.showNoSession();
+                            return;
                         }
-                    };
 
-                    verifySession();
+                        if (!data.active) {
+                            this.showClosedSession();
+                            return;
+                        }
+
+                        // Session exists and is active
+                        this.sessionData = data;
+                        this.showActiveSession();
+                        this.setupSessionListeners();
+                        
+                        if (this.sessionData.password) {
+                            document.getElementById('passwordField').classList.remove('hidden');
+                        }
+                        
+                    }).catch(error => {
+                        console.error('Error checking session:', error);
+                        this.showMessage('Failed to verify session. Please try again.', 'danger');
+                        this.updateConnectionStatus('error');
+                    });
 
                 } catch (error) {
                     console.error('Firebase initialization error:', error);
                     this.showMessage('Failed to initialize connection. Please refresh the page.', 'danger');
                     this.updateConnectionStatus('error');
-                    clearTimeout(this.connectionTimeout);
                 }
             },
 
-            async verifyToken(token) {
+            async submitAttendance() {
+                const studentId = document.getElementById('student_id').value.trim().toUpperCase();
+                const password = document.getElementById('password')?.value;
+                
+                if (!studentId) {
+                    this.showMessage('Please enter your student ID', 'danger');
+                    return;
+                }
+
+                if (this.sessionData.password && password !== this.sessionData.password) {
+                    this.showMessage('Invalid password', 'danger');
+                    return;
+                }
+
                 try {
-                    const verifyTokenWithRetry = async (retryCount = 0) => {
+                    // Check if location verification is required
+                    if (this.sessionData.useLocation) {
                         try {
-                            const sessionSnap = await window.dbGet(this.sessionRef);
-                            const sessionData = sessionSnap.val();
+                            const studentLocation = await this.getStudentLocation();
+                            const distance = this.calculateDistance(studentLocation, this.sessionData.classLocation);
+                            const maxDistance = this.sessionData.locationDistance || 50;
 
-                            if (!sessionData && retryCount < 3) {
-                                console.log('Retrying token verification...');
-                                await new Promise(resolve => setTimeout(resolve, 2000));
-                                return verifyTokenWithRetry(retryCount + 1);
+                            if (distance > maxDistance) {
+                                this.showMessage(`You are too far from the class location (${Math.round(distance)}m away). Maximum allowed distance is ${maxDistance}m.`, 'danger');
+                                return;
                             }
-
-                            if (!sessionData || !sessionData.active) {
-                                return false;
-                            }
-
-                            // Check if token exists in available tokens
-                            if (sessionData.availableTokens && sessionData.availableTokens.includes(token)) {
-                                return true;
-                            }
-
-                            // Check if token has been used
-                            if (sessionData.usedTokens && sessionData.usedTokens[token]) {
-                                return false;
-                            }
-
-                            return false;
                         } catch (error) {
-                            if (retryCount < 3) {
-                                console.log('Retrying after error:', error);
-                                await new Promise(resolve => setTimeout(resolve, 2000));
-                                return verifyTokenWithRetry(retryCount + 1);
-                            }
-                            throw error;
-                        }
-                    };
-
-                    return await verifyTokenWithRetry();
-                } catch (error) {
-                    console.error('Error verifying token:', error);
-                    return false;
-                }
-            },
-
-            async requestNewToken() {
-                try {
-                    // Get current device fingerprint for rate limiting
-                    const deviceData = {
-                        userAgent: navigator.userAgent,
-                        language: navigator.language,
-                        platform: navigator.platform,
-                        screenResolution: `${window.screen.width}x${window.screen.height}`,
-                        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
-                    };
-                    const deviceHash = this.hashCode(JSON.stringify(deviceData));
-
-                    // Get current IP for rate limiting
-                    const currentIP = await fetch('https://api.ipify.org?format=json')
-                        .then(r => r.json())
-                        .then(data => data.ip)
-                        .catch(() => 'unknown');
-
-                    // Reference to the session
-                    const sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
-
-                    // Try to claim a token using transaction
-                    const result = await window.dbRunTransaction(sessionRef, (currentData) => {
-                        // If session doesn't exist or is not active, abort
-                        if (!currentData || !currentData.active) {
+                            this.showMessage(error, 'danger');
                             return;
                         }
-
-                        // Check if session is full
-                        if (!currentData.availableTokens || currentData.availableTokens.length === 0) {
-                            return;
-                        }
-
-                        // Check rate limits
-                        const now = Date.now();
-                        const recentTokens = Object.entries(currentData.usedTokens || {})
-                            .filter(([_, data]) => {
-                                return (data.deviceHash === deviceHash || data.ip === currentIP) && 
-                                       (now - data.timestamp) < 300000; // 5 minutes
-                            });
-
-                        if (recentTokens.length >= 3) {
-                            throw new Error('Rate limit exceeded');
-                        }
-
-                        // Get the first available token
-                        const token = currentData.availableTokens[0];
-                        const updatedTokens = currentData.availableTokens.slice(1);
-
-                        // Update the data atomically
-                        return {
-                            ...currentData,
-                            availableTokens: updatedTokens,
-                            usedTokens: {
-                                ...(currentData.usedTokens || {}),
-                                [token]: {
-                                    timestamp: now,
-                                    deviceHash: deviceHash,
-                                    ip: currentIP,
-                                    deviceData: deviceData,
-                                    status: 'claimed'  // Token is claimed but not yet used
-                                }
-                            }
-                        };
-                    });
-
-                    // If transaction was successful
-                    if (result) {
-                        // Find the token that was claimed
-                        const claimedToken = Object.entries(result.usedTokens)
-                            .find(([_, data]) => data.deviceHash === deviceHash && data.status === 'claimed');
-
-                        if (!claimedToken) {
-                            throw new Error('Failed to claim token');
-                        }
-
-                        const [token] = claimedToken;
-
-                        // Store token and update URL
-                        this.currentToken = token;
-                        this.sessionData = result;
-                        
-                        // Update URL with token without reloading the page
-                        const newUrl = new URL(window.location.href);
-                        newUrl.searchParams.set('token', token);
-                        window.history.replaceState({}, '', newUrl);
-
-                        // Clear connection timeout and update UI
-                        clearTimeout(this.connectionTimeout);
-                        this.showActiveSession();
-                        this.updateConnectionStatus('connected');
-                        
-                        if (this.sessionData.password) {
-                            document.getElementById('passwordField').classList.remove('hidden');
-                        }
-
-                        // Set up session listeners
-                        this.setupSessionListeners();
-
-                        return true;
                     }
 
-                    // If we get here, transaction failed
-                    throw new Error('Failed to claim token');
-
-                } catch (error) {
-                    console.error('Error requesting token:', error);
-                    clearTimeout(this.connectionTimeout);
-                    
-                    if (error.message === 'Rate limit exceeded') {
-                        this.showMessage('Too many attempts. Please wait a few minutes before trying again.', 'danger');
-                    } else {
-                        this.showMessage('Failed to get attendance slot. Please refresh the page.', 'danger');
-                    }
-                    
-                    this.updateConnectionStatus('error');
-                    return false;
-                }
-            },
-
-            setupSessionListeners: function() {
-                // Listen for session updates
-                window.dbOnValue(this.sessionRef, (snapshot) => {
-                    const data = snapshot.val();
-                    
-                    if (!data || !data.active) {
-                        this.showClosedSession();
+                    // Find student in roster
+                    const student = this.sessionData.roster.find(s => s.id.toUpperCase() === studentId);
+                    if (!student) {
+                        this.showMessage('Student ID not found in roster', 'danger');
                         return;
                     }
-                    
-                    this.sessionData = data;
-                });
-                
-                window.dbOnValue(this.attendeesRef, (snapshot) => {
-                    const attendees = snapshot.val() || {};
-                    const attendeeList = Object.values(attendees);
-                    
-                    if (this.sessionData) {
-                        this.sessionData.attendees = attendeeList;
-                        this.updateAttendanceCount();
+
+                    // Check if student already submitted attendance
+                    const hasAttended = Object.values(this.sessionData.attendees || {}).some(a => a.id.toUpperCase() === studentId);
+                    if (hasAttended) {
+                        this.showMessage('Attendance already recorded for this student', 'danger');
+                        return;
                     }
-                });
+
+                    // Add attendance record
+                    const attendeeRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
+                    const newAttendee = {
+                        id: student.id,
+                        name: student.name,
+                        section: student.section || '',
+                        timestamp: Date.now()
+                    };
+
+                    await window.dbPush(attendeeRef, newAttendee);
+
+                    // Show success message and clear form
+                    this.showMessage(`Attendance recorded successfully for ${student.name}!`, 'success');
+                    document.getElementById('student_id').value = '';
+                    if (password) document.getElementById('password').value = '';
+
+                    // Disable form after successful submission
+                    document.getElementById('attendanceForm').innerHTML = `
+                        <div class="alert alert-success">
+                            <i class="fas fa-check-circle"></i>
+                            Attendance recorded successfully!
+                        </div>
+                    `;
+
+                } catch (error) {
+                    console.error('Error submitting attendance:', error);
+                    this.showMessage('Failed to submit attendance. Please try again.', 'danger');
+                }
             },
 
             showActiveSession: function() {
@@ -873,126 +721,6 @@
                 }
             },
 
-            async submitAttendance() {
-                const studentId = document.getElementById('student_id').value.trim().toUpperCase();
-                const password = document.getElementById('password')?.value;
-                
-                if (!studentId) {
-                    this.showMessage('Please enter your student ID', 'danger');
-                    return;
-                }
-
-                if (!this.currentToken) {
-                    this.showMessage('Invalid or missing token. Please scan the QR code again.', 'danger');
-                    return;
-                }
-
-                if (this.sessionData.password && password !== this.sessionData.password) {
-                    this.showMessage('Invalid password', 'danger');
-                    return;
-                }
-
-                // Get current device fingerprint
-                const deviceData = {
-                    userAgent: navigator.userAgent,
-                    language: navigator.language,
-                    platform: navigator.platform,
-                    screenResolution: `${window.screen.width}x${window.screen.height}`,
-                    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                    colorDepth: window.screen.colorDepth,
-                    pixelRatio: window.devicePixelRatio,
-                    hardwareConcurrency: navigator.hardwareConcurrency,
-                    deviceMemory: navigator.deviceMemory
-                };
-                const deviceHash = this.hashCode(JSON.stringify(deviceData));
-
-                try {
-                    const currentIP = await fetch('https://api.ipify.org?format=json')
-                        .then(r => r.json())
-                        .then(data => data.ip)
-                        .catch(() => 'unknown');
-
-                    // Use transaction to update token and add attendance
-                    const sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
-                    const result = await window.dbRunTransaction(sessionRef, (currentData) => {
-                        if (!currentData || !currentData.active) {
-                            throw new Error('Session is no longer active');
-                        }
-
-                        // Verify token status
-                        const tokenData = currentData.usedTokens?.[this.currentToken];
-                        if (!tokenData || tokenData.status !== 'claimed' || tokenData.deviceHash !== deviceHash) {
-                            throw new Error('Invalid or expired token');
-                        }
-
-                        // Check if student exists in roster
-                        const student = currentData.roster.find(s => s.id.toUpperCase() === studentId);
-                        if (!student) {
-                            throw new Error('Student ID not found in roster');
-                        }
-
-                        // Check if student already submitted attendance
-                        const hasAttended = Object.values(currentData.attendees || {}).some(a => a.id.toUpperCase() === studentId);
-                        if (hasAttended) {
-                            throw new Error('Attendance already recorded for this student');
-                        }
-
-                        // Prepare the attendance record
-                        const newAttendee = {
-                            id: student.id,
-                            name: student.name,
-                            section: student.section || '',
-                            timestamp: Date.now(),
-                            ip: currentIP,
-                            token: this.currentToken,
-                            deviceHash: deviceHash,
-                            deviceData: deviceData,
-                            isFromTaIp: currentIP === currentData.taIpAddress
-                        };
-
-                        // Generate a new attendee ID
-                        const attendeeId = `${Date.now()}_${Math.random().toString(36).substring(2)}`;
-
-                        // Update data atomically
-                        return {
-                            ...currentData,
-                            usedTokens: {
-                                ...currentData.usedTokens,
-                                [this.currentToken]: {
-                                    ...tokenData,
-                                    status: 'used',
-                                    studentId: student.id,
-                                    usedAt: Date.now()
-                                }
-                            },
-                            attendees: {
-                                ...(currentData.attendees || {}),
-                                [attendeeId]: newAttendee
-                            }
-                        };
-                    });
-
-                    if (result) {
-                        const student = result.roster.find(s => s.id.toUpperCase() === studentId);
-                        this.showMessage(`Attendance recorded successfully for ${student.name}!`, 'success');
-                        document.getElementById('student_id').value = '';
-                        if (password) document.getElementById('password').value = '';
-                        
-                        // Disable form after successful submission
-                        document.getElementById('attendanceForm').innerHTML = `
-                            <div class="alert alert-success">
-                                <i class="fas fa-check-circle"></i>
-                                Attendance recorded successfully!
-                            </div>
-                        `;
-                    }
-
-                } catch (error) {
-                    console.error('Error submitting attendance:', error);
-                    this.showMessage(error.message || 'Failed to submit attendance. Please try again.', 'danger');
-                }
-            },
-
             updateConnectionStatus: function(status) {
                 const indicator = document.getElementById('connectionIndicator');
                 const statusText = document.getElementById('connectionStatus');
@@ -1032,66 +760,74 @@
                 }
             },
 
-            getFreshLocation: function() {
+            getStudentLocation: function() {
                 return new Promise((resolve, reject) => {
                     if (!navigator.geolocation) {
-                        reject('Geolocation not supported');
+                        reject('Geolocation is not supported by your browser');
                         return;
                     }
-                    
-                    // Use cached location if recent (within 30 seconds)
-                    if (this.lastLocation && Date.now() - this.lastLocation.timestamp < 30000) {
-                        resolve(this.lastLocation);
-                        return;
-                    }
-                    
+
+                    const options = {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 0
+                    };
+
                     navigator.geolocation.getCurrentPosition(
-                        position => {
+                        (position) => {
                             const location = {
                                 lat: position.coords.latitude,
                                 lng: position.coords.longitude,
-                                accuracy: position.coords.accuracy,
-                                timestamp: Date.now()
+                                accuracy: position.coords.accuracy
                             };
-                            this.lastLocation = location;
                             resolve(location);
                         },
-                        error => {
-                            reject(error.message);
+                        (error) => {
+                            console.error('Location error:', error);
+                            reject('Unable to get your location. Please enable location services.');
                         },
-                        { 
-                            enableHighAccuracy: true, 
-                            timeout: this.sessionData?.locationTimeout || 10000 
-                        }
+                        options
                     );
                 });
             },
 
-            calculateDistance: function(studentLoc, classLoc) {
-                if (!classLoc || !studentLoc) return Infinity;
-                
-                const R = 6371e3;
-                const φ1 = studentLoc.lat * Math.PI/180;
-                const φ2 = classLoc.lat * Math.PI/180;
-                const Δφ = (classLoc.lat - studentLoc.lat) * Math.PI/180;
-                const Δλ = (classLoc.lng - studentLoc.lng) * Math.PI/180;
-                
+            calculateDistance: function(point1, point2) {
+                const R = 6371e3; // Earth's radius in meters
+                const φ1 = point1.lat * Math.PI/180;
+                const φ2 = point2.lat * Math.PI/180;
+                const Δφ = (point2.lat - point1.lat) * Math.PI/180;
+                const Δλ = (point2.lng - point1.lng) * Math.PI/180;
+
                 const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
                           Math.cos(φ1) * Math.cos(φ2) *
                           Math.sin(Δλ/2) * Math.sin(Δλ/2);
                 const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-                
-                return R * c;
+
+                return R * c; // Distance in meters
             },
 
-            hashCode: function(str) {
-                let hash = 0;
-                for (let i = 0; i < str.length; i++) {
-                    const char = str.charCodeAt(i);
-                    hash = ((hash << 5) - hash) + char;
-                    hash = hash & hash; // Convert to 32-bit integer
-                }
-                return Math.abs(hash).toString(36);
+            setupSessionListeners: function() {
+                // Listen for session updates
+                window.dbOnValue(this.sessionRef, (snapshot) => {
+                    const data = snapshot.val();
+                    
+                    if (!data || !data.active) {
+                        this.showClosedSession();
+                        return;
+                    }
+                    
+                    this.sessionData = data;
+                });
+                
+                window.dbOnValue(this.attendeesRef, (snapshot) => {
+                    const attendees = snapshot.val() || {};
+                    const attendeeList = Object.values(attendees);
+                    
+                    if (this.sessionData) {
+                        this.sessionData.attendees = attendeeList;
+                        this.updateAttendanceCount();
+                    }
+                });
             },
 
             handleConnectionLost: function() {
