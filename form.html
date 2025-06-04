@@ -3,10 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Attendance Form | EELU</title>
+    <title>Attendance System | EELU</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     
+    <script>
+        function loadGoogleMaps() {
+            const script = document.createElement('script');
+            script.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes&libraries=places&callback=initMap';
+            script.async = true;
+            script.defer = true;
+            document.head.appendChild(script);
+        }
+        window.addEventListener('load', loadGoogleMaps);
+    </script>
+
     <script type="module">
         import { initializeApp, getApps } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
         import { getDatabase, ref, onValue, push, off, set, get, serverTimestamp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
@@ -39,12 +52,12 @@
                 const connectedRef = ref(database, '.info/connected');
                 onValue(connectedRef, (snapshot) => {
                     const connected = snapshot.val();
-                    if (window.formApp) {
+                    if (window.app) {
                         if (!connected) {
                             console.error('Firebase connection lost');
-                            window.formApp.handleConnectionLost();
+                            window.app.handleConnectionLost();
                         } else {
-                            window.formApp.handleConnectionRestored();
+                            window.app.handleConnectionRestored();
                         }
                     }
                 }, (error) => {
@@ -76,20 +89,60 @@
             }).catch(error => {
                 console.error('Database connection test failed:', error);
                 window.dbConnected = false;
-                if (window.formApp) {
-                    window.formApp.showMessage('Failed to connect to database. Please check your internet connection.', 'danger');
-                    window.formApp.updateConnectionStatus('error');
+                if (window.app) {
+                    window.app.showMessage('Failed to connect to database. Please check your internet connection.', 'danger');
+                    window.app.updateConnectionStatus('error');
                 }
             });
 
         } catch (error) {
             console.error('Firebase initialization error:', error);
             window.dbConnected = false;
-            if (window.formApp) {
-                window.formApp.showMessage('Failed to initialize Firebase. Please refresh the page.', 'danger');
-                window.formApp.updateConnectionStatus('error');
+            if (window.app) {
+                window.app.showMessage('Failed to initialize Firebase. Please refresh the page.', 'danger');
+                window.app.updateConnectionStatus('error');
             }
         }
+    </script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const uploadForm = document.getElementById('uploadForm');
+            if (uploadForm) {
+                uploadForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    app.handleRosterUpload(e);
+                });
+            }
+
+            const sessionForm = document.getElementById('sessionForm');
+            if (sessionForm) {
+                sessionForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    app.createSession();
+                });
+            }
+
+            app.init();
+            
+            // Add cleanup handlers
+            window.addEventListener('beforeunload', function() {
+                app.cleanup();
+            });
+            
+            window.addEventListener('unload', function() {
+                app.cleanup();
+            });
+            
+            // Handle visibility change
+            document.addEventListener('visibilitychange', function() {
+                if (document.hidden) {
+                    app.handlePageHidden();
+                } else {
+                    app.handlePageVisible();
+                }
+            });
+        });
     </script>
     
     <style>
@@ -98,12 +151,17 @@
             --primary-dark: #5a6fd8;
             --secondary: #764ba2;
             --success: #10b981;
+            --warning: #f59e0b;
             --danger: #ef4444;
-            --light-bg: #f8fafc;
+            --info: #3b82f6;
             --dark: #1f2937;
+            --light: #f8fafc;
             --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --gradient-light: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
             --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
             --border-radius: 12px;
+            --border-radius-lg: 16px;
         }
         
         * {
@@ -114,31 +172,67 @@
         
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: var(--light-bg);
+            background: var(--light);
+            line-height: 1.6;
             color: var(--dark);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 1rem;
+            overflow-x: hidden;
             background-image: radial-gradient(circle at 10% 20%, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 90%);
         }
         
         .container {
-            max-width: 500px;
-            width: 100%;
-            animation: fadeIn 0.5s ease-out;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+            position: relative;
+        }
+        
+        header::after {
+            content: '';
+            position: absolute;
+            bottom: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60px;
+            height: 4px;
+            background: var(--gradient);
+            border-radius: 2px;
+            animation: slideIn 0.8s ease-out;
+        }
+        
+        header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+            animation: slideDown 0.8s ease-out;
+        }
+        
+        header p {
+            font-size: 1.1rem;
+            color: #6b7280;
+            font-weight: 400;
+            animation: slideDown 0.8s ease-out 0.2s both;
         }
         
         .card {
             background: white;
-            border-radius: var(--border-radius);
+            border-radius: var(--border-radius-lg);
             padding: 2rem;
+            margin-bottom: 2rem;
             box-shadow: var(--shadow);
             border: 1px solid rgba(255, 255, 255, 0.2);
-            transition: all 0.3s ease;
             position: relative;
             overflow: hidden;
+            transition: all 0.3s ease;
+            animation: slideUp 0.6s ease-out;
         }
         
         .card::before {
@@ -149,70 +243,67 @@
             right: 0;
             height: 4px;
             background: var(--gradient);
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform 0.3s ease;
         }
         
-        h1 {
-            color: var(--primary);
+        .card:hover::before {
+            transform: scaleX(1);
+        }
+        
+        .card h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--dark);
             margin-bottom: 1.5rem;
-            text-align: center;
-            font-size: 1.8rem;
             display: flex;
             align-items: center;
-            justify-content: center;
             gap: 0.75rem;
         }
         
-        .connection-status {
-            display: flex;
+        .card h2 i {
+            color: var(--primary);
+            font-size: 1.2rem;
+        }
+        
+        .btn {
+            background: var(--gradient);
+            color: white;
+            padding: 0.875rem 1.75rem;
+            border-radius: var(--border-radius);
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            display: inline-flex;
             align-items: center;
             justify-content: center;
             gap: 0.5rem;
-            margin-bottom: 1.5rem;
-            font-size: 0.9rem;
-            background: rgba(102, 126, 234, 0.1);
-            padding: 0.75rem;
-            border-radius: 50px;
         }
         
-        .status-indicator {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .btn:disabled {
             background: #d1d5db;
-            transition: all 0.3s ease;
+            cursor: not-allowed;
+            transform: none;
         }
         
-        .status-indicator.connected {
-            background: var(--success);
-            box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+        .btn-success {
+            background: linear-gradient(135deg, #10b981, #059669);
         }
         
-        .status-indicator.connecting {
-            background: #f59e0b;
-            animation: pulse 1.5s infinite;
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
         }
         
-        @keyframes pulse {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.7; transform: scale(1.1); }
-        }
-        
-        .session-info {
-            background: rgba(102, 126, 234, 0.05);
-            border-radius: var(--border-radius);
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
-            border: 1px solid rgba(102, 126, 234, 0.1);
-        }
-        
-        .session-info p {
-            margin-bottom: 0.5rem;
-            display: flex;
-            justify-content: space-between;
-        }
-        
-        .session-info strong {
-            color: var(--primary);
+        .btn-secondary {
+            background: linear-gradient(135deg, #6b7280, #4b5563);
         }
         
         .form-group {
@@ -248,42 +339,63 @@
             outline: none;
         }
         
-        .btn {
-            background: var(--gradient);
-            color: white;
-            padding: 1rem;
-            border-radius: var(--border-radius);
-            border: none;
-            cursor: pointer;
-            font-size: 1rem;
-            font-weight: 500;
+        .file-upload {
+            border: 2px dashed #d1d5db;
+            padding: 3rem 2rem;
+            text-align: center;
+            border-radius: var(--border-radius-lg);
+            margin-bottom: 1.5rem;
             transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.75rem;
-            width: 100%;
+            background: var(--gradient-light);
         }
         
-        .btn:hover {
-            transform: translateY(-2px);
+        .file-upload:hover {
+            border-color: var(--primary);
+            background: rgba(102, 126, 234, 0.05);
+        }
+        
+        #fileName {
+            color: #6b7280;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+        
+        #qrcode {
+            padding: 1.5rem;
+            background: white;
+            border-radius: var(--border-radius);
+            display: inline-block;
+            border: 1px solid #f3f4f6;
+            margin: 1rem 0;
             box-shadow: var(--shadow);
+            animation: scaleIn 0.5s ease-out;
         }
         
-        .btn:disabled {
-            background: #d1d5db;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
+        .session-url {
+            margin: 1.5rem 0;
+        }
+        
+        .session-url .input-group {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .session-url input {
+            flex: 1;
+        }
+        
+        .copy-btn {
+            padding: 0.875rem;
+            min-width: auto;
         }
         
         .alert {
             padding: 1rem 1.5rem;
             border-radius: var(--border-radius);
             margin-bottom: 1.5rem;
-            font-weight: 500;
-            animation: slideInDown 0.5s ease-out;
             border-left: 4px solid;
+            font-weight: 500;
+            animation: slideInRight 0.5s ease-out;
         }
         
         .alert-success {
@@ -298,45 +410,353 @@
             border-left-color: var(--danger);
         }
         
-        .alert-info {
-            background: rgba(59, 130, 246, 0.1);
-            color: #1d4ed8;
-            border-left-color: #3b82f6;
+        .session-status {
+            text-align: center;
+            padding: 1.5rem;
+            border-radius: var(--border-radius);
+            margin-bottom: 2rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+        }
+        
+        .session-active {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.05));
+            color: #047857;
+            border: 2px solid rgba(16, 185, 129, 0.2);
+        }
+        
+        .session-inactive {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05));
+            color: #b91c1c;
+            border: 2px solid rgba(239, 68, 68, 0.2);
+        }
+        
+        .sync-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+            padding: 0.5rem 1rem;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 50px;
+        }
+        
+        .sync-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #d1d5db;
+            transition: all 0.3s ease;
+        }
+        
+        .sync-indicator.connected {
+            background: var(--success);
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+        }
+        
+        .sync-indicator.connecting {
+            background: var(--warning);
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.1); }
+        }
+        
+        #rosterInfo {
+            margin-top: 1.5rem;
+            padding: 1.5rem;
+            background: var(--gradient-light);
+            border-radius: var(--border-radius);
+            border: 1px solid rgba(102, 126, 234, 0.2);
+        }
+        
+        .attendance-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 1rem;
+            border-radius: var(--border-radius);
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+        }
+        
+        .attendee-item {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid #f1f5f9;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            animation: slideInUp 0.5s ease-out;
+        }
+        
+        .attendee-item:last-child {
+            border-bottom: none;
+        }
+        
+        .attendee-info {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+        
+        .attendee-name {
+            font-weight: 600;
+            color: var(--dark);
+        }
+        
+        .attendee-details {
+            font-size: 0.875rem;
+            color: #6b7280;
+        }
+        
+        .attendee-time {
+            text-align: right;
+            font-size: 0.875rem;
+            color: #6b7280;
+        }
+        
+        .progress-container {
+            margin: 1.5rem 0;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #f1f5f9;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 0.5rem;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: var(--gradient);
+            transition: width 0.5s ease;
+            border-radius: 4px;
+        }
+        
+        .progress-text {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.875rem;
+            color: #6b7280;
+            font-weight: 500;
         }
         
         .hidden {
             display: none !important;
         }
         
-        .loading {
-            text-align: center;
+        .flex {
+            display: flex;
+        }
+        
+        .flex-1 {
+            flex: 1;
+        }
+        
+        .gap-4 {
+            gap: 1rem;
+        }
+        
+        .mb-4 {
+            margin-bottom: 1rem;
+        }
+        
+        .qr-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .qr-modal-content {
+            background: white;
             padding: 2rem;
+            border-radius: 12px;
+            text-align: center;
+            width: 90%;
+            max-width: 500px;
         }
         
-        .spinner {
-            border: 3px solid rgba(102, 126, 234, 0.2);
-            border-top: 3px solid var(--primary);
+        .qr-modal img {
+            width: 100%;
+            max-height: 70vh;
+        }
+        
+        .close-modal {
+            margin-top: 1rem;
+            cursor: pointer;
+        }
+        
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+            margin-left: 10px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
             border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 1rem;
         }
         
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        input:checked + .toggle-slider {
+            background-color: var(--primary);
         }
         
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
+        input:checked + .toggle-slider:before {
+            transform: translateX(26px);
         }
         
-        @keyframes slideInDown {
+        .session-history {
+            margin-top: 2rem;
+        }
+        
+        .session-item {
+            padding: 1rem;
+            border: 1px solid #e5e7eb;
+            border-radius: var(--border-radius);
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .session-item:hover {
+            background-color: #f8fafc;
+        }
+        
+        .session-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .voice-btn {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: var(--gradient);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: var(--shadow-lg);
+            z-index: 100;
+            transition: all 0.3s ease;
+            overflow: hidden;
+        }
+        
+        .voice-btn::before {
+            content: 'Voice Commands';
+            position: absolute;
+            right: 70px;
+            white-space: nowrap;
+            background: var(--gradient);
+            padding: 0.5rem 1rem;
+            border-radius: 30px;
+            opacity: 0;
+            transition: all 0.3s ease;
+            font-size: 0.9rem;
+        }
+        
+        .voice-btn:hover {
+            width: 200px;
+            border-radius: 30px;
+            justify-content: flex-end;
+            padding-right: 1rem;
+        }
+        
+        .voice-btn:hover::before {
+            opacity: 1;
+            right: 50px;
+        }
+        
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+        
+        .modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: var(--border-radius-lg);
+            width: 90%;
+            max-width: 800px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        
+        .modal.hidden {
+            display: none;
+        }
+        
+        .full-width {
+            width: 100%;
+        }
+        
+        .pac-container {
+            z-index: 2100 !important;
+        }
+        
+        .location-btn {
+            display: none;
+            margin-left: 10px;
+            padding: 0.5rem;
+        }
+        
+        @keyframes slideDown {
             from {
                 opacity: 0;
-                transform: translateY(-20px);
+                transform: translateY(-30px);
             }
             to {
                 opacity: 1;
@@ -344,35 +764,125 @@
             }
         }
         
-        .closed-message {
-            text-align: center;
-            padding: 2rem;
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
         
-        .closed-message h1 {
-            margin-bottom: 1rem;
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-50%) scaleX(0);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(-50%) scaleX(1);
+            }
         }
         
-        .closed-message i {
-            font-size: 2.5rem;
-            color: var(--danger);
-            margin-bottom: 1rem;
-            animation: bounce 1s infinite;
+        @keyframes slideInRight {
+            from {
+                opacity: 0;
+                transform: translateX(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
         }
         
-        @keyframes bounce {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
+        @keyframes slideInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
         
-        @media (max-width: 480px) {
+        @keyframes scaleIn {
+            from {
+                opacity: 0;
+                transform: scale(0.8);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+            
+            header h1 {
+                font-size: 2rem;
+            }
+            
             .card {
                 padding: 1.5rem;
             }
             
-            h1 {
-                font-size: 1.5rem;
+            .session-url .input-group {
+                flex-direction: column;
             }
+            
+            .attendee-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.5rem;
+            }
+            
+            .attendee-time {
+                text-align: left;
+            }
+            
+            .voice-btn:hover {
+                width: 60px;
+                border-radius: 50%;
+                justify-content: center;
+                padding-right: 0;
+            }
+            
+            .voice-btn:hover::before {
+                display: none;
+            }
+        }
+
+        .session-card {
+            margin-bottom: 2rem;
+        }
+
+        .session-card:last-child {
+            margin-bottom: 0;
+        }
+        
+        .update-subject-btn {
+            margin-left: 10px;
+            padding: 0.5rem;
+            background: var(--info);
+            color: white;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            border: none;
+            cursor: pointer;
+        }
+        
+        .session-feedback {
+            text-align: center;
+            padding: 2rem;
+            border-radius: var(--border-radius);
+            background: #f8fafc;
+            margin-bottom: 1.5rem;
         }
 
         .text-red-500 {
@@ -382,79 +892,171 @@
 </head>
 <body>
     <div class="container">
+        <header>
+            <h1><i class="fas fa-qrcode"></i> EELU Attendance System</h1>
+            <p>Teaching Assistant Dashboard</p>
+        </header>
+
+        <div id="message" class="alert hidden"></div>
+
+        <!-- Upload Roster Section -->
         <div class="card">
-            <div id="loadingSection" class="loading">
-                <div class="spinner"></div>
-                <p id="connectionStatus">Initializing connection...</p>
-            </div>
-            
-            <div id="activeSession" class="hidden">
-                <h1><i class="fas fa-user-check"></i> Attendance Form</h1>
-                
-                <div class="connection-status">
-                    <div class="status-indicator" id="connectionIndicator"></div>
-                    <span id="connectionStatus">Connecting...</span>
+            <h2><i class="fas fa-cloud-upload-alt"></i> Upload Student Roster</h2>
+            <form id="uploadForm">
+                <div class="file-upload">
+                    <input type="file" id="roster" name="roster" accept=".xlsx,.csv" hidden>
+                    <label for="roster" class="btn">
+                        <i class="fas fa-file-excel"></i> Select Excel/CSV File
+                    </label>
+                    <div id="fileName">Drag & drop or click to browse files</div>
                 </div>
-                
-                <div class="session-info">
-                    <p><strong><i class="fas fa-book"></i> Subject:</strong> <span id="displaySubject">-</span></p>
-                    <p><strong><i class="fas fa-calendar-week"></i> Week:</strong> <span id="displayWeek">-</span></p>
-                    <p><strong><i class="fas fa-users"></i> Attendance:</strong> <span id="attendedCount">0</span>/<span id="maxAttendees">-</span></p>
+                <div id="rosterInfo" class="hidden">
+                    <div class="flex gap-4">
+                        <div class="form-group flex-1">
+                            <label for="subjectNameInput"><i class="fas fa-book"></i> Subject Name</label>
+                            <div style="display: flex; align-items: center;">
+                                <input type="text" id="subjectNameInput" placeholder="Enter subject name">
+                                <button type="button" class="update-subject-btn" onclick="app.updateSubjectName()">
+                                    <i class="fas fa-sync-alt"></i> Update
+                                </button>
+                            </div>
+                        </div>
+                        <div class="flex-1">
+                            <p><strong><i class="fas fa-users"></i> Students:</strong> <span id="studentCount">0</span></p>
+                            <p><strong><i class="fas fa-calendar-week"></i> Detected Weeks:</strong> <span id="weekCount">None</span></p>
+                        </div>
+                    </div>
                 </div>
-                
-                <div id="message" class="alert hidden"></div>
-                
-                <form id="attendanceForm">
-                    <div class="form-group">
-                        <label for="student_id"><i class="fas fa-id-card"></i> Student ID</label>
-                        <input type="text" id="student_id" name="student_id" placeholder="Enter your university ID" required>
+                <button type="submit" class="btn">
+                    <i class="fas fa-upload"></i> Process Roster
+                </button>
+            </form>
+        </div>
+
+        <!-- Create Session Section -->
+        <div class="card">
+            <h2><i class="fas fa-play-circle"></i> Create Attendance Session</h2>
+            <form id="sessionForm">
+                <div class="flex gap-4">
+                    <div class="form-group flex-1">
+                        <label for="week"><i class="fas fa-calendar-week"></i> Week Number</label>
+                        <input type="number" id="week" name="week" min="1" max="52" placeholder="e.g., 1" required>
                     </div>
                     
-                    <div id="passwordField" class="form-group hidden">
-                        <label for="password"><i class="fas fa-lock"></i> Session Password</label>
-                        <input type="password" id="password" name="password" placeholder="Enter session password">
+                    <div class="form-group flex-1">
+                        <label for="max_attendees"><i class="fas fa-user-friends"></i> Max Attendees</label>
+                        <input type="number" id="max_attendees" name="max_attendees" min="1" max="500" value="30" required>
                     </div>
-                    
-                    <!-- Hidden device token field -->
-                    <input type="hidden" id="deviceToken" name="deviceToken">
-                    
-                    <button type="submit" class="btn" id="submitBtn">
-                        <i class="fas fa-check-circle"></i> Submit Attendance
-                    </button>
-                </form>
+                </div>
+                
+                <div class="form-group">
+                    <label for="password"><i class="fas fa-shield-alt"></i> Session Password (Optional)</label>
+                    <input type="password" id="password" name="password" placeholder="Leave blank for no password">
+                </div>
+                
+                <div class="form-group">
+                    <label for="ta_email"><i class="fas fa-envelope"></i> Your Outlook Email</label>
+                    <input type="email" id="ta_email" name="ta_email" placeholder="Enter your Outlook email" required>
+                </div>
+                
+                <div class="form-group">
+                    <label style="display: flex; align-items: center;">
+                        <i class="fas fa-map-marker-alt"></i> Enable Location Check
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="useLocation">
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <button type="button" id="setLocationBtn" class="btn btn-secondary location-btn">
+                            <i class="fas fa-map-marked-alt"></i> Set Location
+                        </button>
+                    </label>
+                    <div id="locationSettings" class="hidden">
+                        <label for="locationDistance">Maximum Distance (meters):</label>
+                        <input type="number" id="locationDistance" value="50" min="10">
+                        <div id="locationPreview" style="margin-top: 0.5rem; font-size: 0.9rem; color: #6b7280;">
+                            No location selected
+                        </div>
+                    </div>
+                </div>
+                
+                <button type="submit" id="createSessionBtn" class="btn" disabled>
+                    <i class="fas fa-rocket"></i> Launch Session
+                </button>
+            </form>
+        </div>
+
+        <!-- Sessions Container -->
+        <div id="sessionsContainer"></div>
+
+        <!-- Session History Section -->
+        <div class="card session-history hidden" id="sessionHistoryCard">
+            <h2><i class="fas fa-history"></i> Session History</h2>
+            <div id="sessionHistoryList"></div>
+            <button onclick="app.clearSessionHistory()" class="btn btn-danger">
+                <i class="fas fa-trash"></i> Clear History
+            </button>
+        </div>
+    </div>
+
+    <!-- QR Code Modal -->
+    <div id="qrModal" class="qr-modal">
+        <div class="qr-modal-content">
+            <div id="fullscreenQr"></div>
+            <button onclick="app.closeFullscreenQR()" class="btn close-modal">
+                <i class="fas fa-times"></i> Close
+            </button>
+        </div>
+    </div>
+
+    <!-- Location Picker Modal -->
+    <div id="locationModal" class="modal hidden">
+        <div class="modal-content">
+            <h2><i class="fas fa-map-marker-alt"></i> Select Class Location</h2>
+            <div id="map" style="height: 400px; width: 100%; margin: 1rem 0;"></div>
+            <div class="form-group">
+                <label><i class="fas fa-search"></i> Search Location:</label>
+                <input type="text" id="locationSearch" placeholder="Search for a location" class="full-width">
             </div>
-            
-            <div id="closedSession" class="hidden closed-message">
-                <i class="fas fa-calendar-times"></i>
-                <h1>Session Closed</h1>
-                <p>This attendance session is no longer active.</p>
-                <p>Please contact your instructor for assistance.</p>
-            </div>
-            
-            <div id="noSession" class="hidden closed-message">
-                <i class="fas fa-exclamation-triangle"></i>
-                <h1>No Session Found</h1>
-                <p>The attendance session could not be found.</p>
-                <p>Please check the link or contact your instructor.</p>
+            <div class="flex gap-4">
+                <button onclick="app.useCurrentLocation()" class="btn btn-secondary">
+                    <i class="fas fa-location-arrow"></i> Use Current Location
+                </button>
+                <button onclick="app.confirmLocation()" class="btn btn-success">
+                    <i class="fas fa-check"></i> Confirm Location
+                </button>
+                <button onclick="app.closeLocationModal()" class="btn btn-danger">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
             </div>
         </div>
     </div>
 
+    <!-- Voice Command Button -->
+    <div class="voice-btn" id="voiceBtn" title="Voice Commands">
+        <i class="fas fa-microphone"></i>
+    </div>
+
     <script>
-        const formApp = {
-            currentSessionId: null,
-            sessionData: null,
-            sessionRef: null,
-            attendeesRef: null,
-            lastLocation: null,
-            locationAttempts: 0,
-            maxLocationAttempts: 2,
-            currentToken: null,
-            initialLoadTime: null,
-            connectionTimeout: null,
-            reconnectionTimeout: null,
+        const app = {
+            rosterData: [],
+            currentSessions: [],
+            subjectName: '',
+            previousAttendanceData: null,
+            sessionsHistory: [],
+            recognition: null,
+            deviceId: localStorage.getItem('deviceId') || Date.now().toString(),
+            existingWeeks: [],
+            maxExistingWeek: 0,
+            classLocation: null,
+            map: null,
+            marker: null,
+            selectedLocation: null,
+            isPC: false,
 
             init: function() {
+                // Detect if user is on PC
+                this.isPC = !(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
+                
                 // First try to restore any saved state
                 this.restoreState();
 
@@ -465,421 +1067,1166 @@
                     return;
                 }
 
-                // Get session ID from URL if not restored from state
-                if (!this.currentSessionId) {
-                    this.currentSessionId = new URLSearchParams(window.location.search).get('session');
-                }
-                
-                if (!this.currentSessionId) {
-                    this.showMessage('Invalid session', 'danger');
-                    this.showNoSession();
-                    return;
-                }
-
                 // Set connection timeout
                 this.connectionTimeout = setTimeout(() => {
-                    if (document.getElementById('loadingSection').classList.contains('loading')) {
+                    if (!this.initialized) {
                         this.showMessage('Connection timeout. Please refresh the page.', 'danger');
                         this.updateConnectionStatus('error');
                     }
                 }, 15000);
 
-                // Update loading message
-                document.getElementById('loadingSection').innerHTML = `
-                    <div class="spinner"></div>
-                    <p id="connectionStatus">Initializing connection...</p>
-                `;
-
-                // Initialize Firebase and start session
+                // Initialize Firebase and start loading sessions
                 this.initializeFirebase();
+
+                localStorage.setItem('deviceId', this.deviceId);
+                this.setupDragAndDrop();
+                
+                const locationToggle = document.getElementById('useLocation');
+                locationToggle.addEventListener('change', function() {
+                    document.getElementById('locationSettings').classList.toggle('hidden', !this.checked);
+                    document.getElementById('setLocationBtn').style.display = this.checked ? 'block' : 'none';
+                });
+                
+                document.getElementById('setLocationBtn').addEventListener('click', () => {
+                    this.openLocationModal();
+                });
+                
+                this.initVoiceCommands();
+                this.loadSessionHistory();
             },
 
-            initializeFirebase: function() {
+            initMap: function() {
+                if (!window.google) {
+                    this.showMessage('Failed to load Google Maps. Please check your internet connection.', 'danger');
+                    return;
+                }
+                
                 try {
-                    // Verify Firebase is ready
-                    if (!window.database) {
-                        throw new Error('Firebase database not initialized');
-                    }
-
-                    // Initialize Firebase references
-                    this.sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
-                    this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
-
-                    // Update status
-                    document.getElementById('connectionStatus').textContent = 'Verifying session...';
-
-                    // Check if session exists with timeout
-                    Promise.race([
-                        window.dbGet(this.sessionRef),
-                        new Promise((_, reject) => 
-                            setTimeout(() => reject(new Error('Connection timeout')), 10000)
-                        )
-                    ]).then(snapshot => {
-                        const data = snapshot.val();
-                        
-                        if (!data) {
-                            clearTimeout(this.connectionTimeout);
-                            this.showNoSession();
-                            return;
-                        }
-
-                        if (!data.active) {
-                            clearTimeout(this.connectionTimeout);
-                            this.showClosedSession();
-                            return;
-                        }
-
-                        // Session exists and is active
-                        this.sessionData = data;
-                        document.getElementById('connectionStatus').textContent = 'Requesting attendance slot...';
-                        
-                        // Request token
-                        this.requestNewToken();
-                    }).catch(error => {
-                        console.error('Error checking session:', error);
-                        this.showMessage('Failed to verify session. Please check your connection and try again.', 'danger');
-                        this.updateConnectionStatus('error');
-                        clearTimeout(this.connectionTimeout);
+                    this.map = new google.maps.Map(document.getElementById('map'), {
+                        center: {lat: 30.0444, lng: 31.2357},
+                        zoom: 15
                     });
-
+                    
+                    this.marker = new google.maps.Marker({
+                        map: this.map,
+                        draggable: true
+                    });
+                    
+                    const searchBox = new google.maps.places.SearchBox(
+                        document.getElementById('locationSearch')
+                    );
+                    
+                    this.map.addListener('bounds_changed', () => {
+                        searchBox.setBounds(this.map.getBounds());
+                    });
+                    
+                    searchBox.addListener('places_changed', () => {
+                        const places = searchBox.getPlaces();
+                        if (places.length === 0) return;
+                        
+                        const place = places[0];
+                        if (!place.geometry) return;
+                        
+                        this.map.setCenter(place.geometry.location);
+                        this.marker.setPosition(place.geometry.location);
+                        this.selectedLocation = {
+                            lat: place.geometry.location.lat(),
+                            lng: place.geometry.location.lng()
+                        };
+                    });
+                    
+                    this.map.addListener('click', (e) => {
+                        this.marker.setPosition(e.latLng);
+                        this.selectedLocation = {
+                            lat: e.latLng.lat(),
+                            lng: e.latLng.lng()
+                        };
+                    });
+                    
+                    this.marker.addListener('dragend', (e) => {
+                        this.selectedLocation = {
+                            lat: e.latLng.lat(),
+                            lng: e.latLng.lng()
+                        };
+                    });
                 } catch (error) {
-                    console.error('Firebase initialization error:', error);
-                    this.showMessage('Failed to initialize connection. Please refresh the page.', 'danger');
-                    this.updateConnectionStatus('error');
-                    clearTimeout(this.connectionTimeout);
+                    console.error('Error initializing map:', error);
+                    this.showMessage('Error initializing Google Maps. Please try again.', 'danger');
                 }
             },
 
-            async verifyToken(token) {
-                try {
-                    const sessionSnap = await window.dbGet(this.sessionRef);
-                    const sessionData = sessionSnap.val();
-
-                    if (!sessionData || !sessionData.active) {
-                        return false;
-                    }
-
-                    // Check if token exists in available tokens
-                    if (sessionData.availableTokens && sessionData.availableTokens.includes(token)) {
-                        return true;
-                    }
-
-                    // Check if token has been used
-                    if (sessionData.usedTokens && sessionData.usedTokens[token]) {
-                        return false;
-                    }
-
-                    return false;
-                } catch (error) {
-                    console.error('Error verifying token:', error);
-                    return false;
-                }
-            },
-
-            async requestNewToken() {
-                try {
-                    // Get fresh session data with timeout
-                    const sessionSnap = await Promise.race([
-                        window.dbGet(this.sessionRef),
-                        new Promise((_, reject) => 
-                            setTimeout(() => reject(new Error('Connection timeout')), 10000)
-                        )
-                    ]);
-                    
-                    const sessionData = sessionSnap.val();
-
-                    if (!sessionData || !sessionData.active) {
-                        clearTimeout(this.connectionTimeout);
-                        this.showMessage('Session is no longer active', 'danger');
-                        this.showClosedSession();
-                        return false;
-                    }
-
-                    if (!sessionData.availableTokens || sessionData.availableTokens.length === 0) {
-                        clearTimeout(this.connectionTimeout);
-                        this.showMessage('No attendance slots available. Session is full.', 'danger');
-                        return false;
-                    }
-
-                    // Try to claim a token with transaction
-                    const token = sessionData.availableTokens[0];
-                    const updatedTokens = sessionData.availableTokens.slice(1);
-
-                    // Update tokens atomically at the session level
-                    try {
-                        await window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/availableTokens`), updatedTokens);
-                        
-                        // Verify the token was claimed successfully
-                        const verifySnap = await window.dbGet(this.sessionRef);
-                        const verifyData = verifySnap.val();
-                        
-                        if (!verifyData || verifyData.availableTokens.includes(token)) {
-                            throw new Error('Token claim verification failed');
-                        }
-
-                        // Store token and update URL
-                        this.currentToken = token;
-                        this.sessionData = sessionData;
-                        
-                        // Update URL with token without reloading the page
-                        const newUrl = new URL(window.location.href);
-                        newUrl.searchParams.set('token', token);
-                        window.history.replaceState({}, '', newUrl);
-
-                        clearTimeout(this.connectionTimeout);
-                        this.showActiveSession();
-                        this.updateConnectionStatus('connected');
-                        
-                        if (this.sessionData.password) {
-                            document.getElementById('passwordField').classList.remove('hidden');
-                        }
-
-                        // Set up session listeners
-                        this.setupSessionListeners();
-
-                        return true;
-
-                    } catch (error) {
-                        console.error('Token claim failed:', error);
-                        // Try to restore the token if something went wrong
-                        try {
-                            await window.dbSet(
-                                window.dbRef(window.database, `sessions/${this.currentSessionId}/availableTokens`),
-                                sessionData.availableTokens
-                            );
-                        } catch (restoreError) {
-                            console.error('Failed to restore token:', restoreError);
-                        }
-                        throw error;
-                    }
-
-                } catch (error) {
-                    console.error('Error requesting token:', error);
-                    clearTimeout(this.connectionTimeout);
-                    this.showMessage('Failed to get attendance slot. Please refresh the page.', 'danger');
-                    this.updateConnectionStatus('error');
-                    return false;
-                }
-            },
-
-            setupSessionListeners: function() {
-                // Listen for session updates
-                window.dbOnValue(this.sessionRef, (snapshot) => {
-                    const data = snapshot.val();
-                    
-                    if (!data || !data.active) {
-                        this.showClosedSession();
-                        return;
-                    }
-                    
-                    this.sessionData = data;
-                });
+            openLocationModal: function() {
+                document.getElementById('locationModal').classList.remove('hidden');
+                document.body.style.overflow = 'hidden';
                 
-                window.dbOnValue(this.attendeesRef, (snapshot) => {
-                    const attendees = snapshot.val() || {};
-                    const attendeeList = Object.values(attendees);
-                    
-                    if (this.sessionData) {
-                        this.sessionData.attendees = attendeeList;
-                        this.updateAttendanceCount();
-                    }
-                });
-            },
-
-            showActiveSession: function() {
-                document.getElementById('loadingSection').classList.add('hidden');
-                document.getElementById('activeSession').classList.remove('hidden');
-                document.getElementById('closedSession').classList.add('hidden');
-                document.getElementById('noSession').classList.add('hidden');
-                
-                if (this.sessionData) {
-                    document.getElementById('displaySubject').textContent = this.sessionData.subject || '-';
-                    document.getElementById('displayWeek').textContent = this.sessionData.week || '-';
-                    document.getElementById('maxAttendees').textContent = this.sessionData.maxAttendees || '-';
-                    this.updateAttendanceCount();
+                if (!this.map) {
+                    this.initMap();
                 }
-            },
 
-            showClosedSession: function() {
-                document.getElementById('loadingSection').classList.add('hidden');
-                document.getElementById('activeSession').classList.add('hidden');
-                document.getElementById('closedSession').classList.remove('hidden');
-                document.getElementById('noSession').classList.add('hidden');
-                this.updateConnectionStatus('offline');
-                
-                if (this.sessionRef) window.dbOff(this.sessionRef);
-                if (this.attendeesRef) window.dbOff(this.attendeesRef);
-            },
-
-            showNoSession: function() {
-                document.getElementById('loadingSection').classList.add('hidden');
-                document.getElementById('activeSession').classList.add('hidden');
-                document.getElementById('closedSession').classList.add('hidden');
-                document.getElementById('noSession').classList.remove('hidden');
-                this.updateConnectionStatus('offline');
-            },
-
-            updateAttendanceCount: function() {
-                if (this.sessionData && this.sessionData.attendees) {
-                    const attendedCount = this.sessionData.attendees.length;
-                    document.getElementById('attendedCount').textContent = attendedCount;
-                    
-                    if (attendedCount >= this.sessionData.maxAttendees) {
-                        document.getElementById('submitBtn').disabled = true;
-                        this.showMessage('This session is full', 'info');
-                    } else {
-                        document.getElementById('submitBtn').disabled = false;
-                    }
+                // If user is on PC (TA), show manual input by default
+                if (this.isPC) {
+                    document.getElementById('locationSearch').focus();
+                    this.showMessage('As a TA on PC, please manually enter or select the class location', 'info');
+                    document.querySelector('button[onclick="app.useCurrentLocation()"]').style.display = 'none';
                 } else {
-                    document.getElementById('attendedCount').textContent = '0';
+                    // For students on mobile devices, show automatic location option
+                    document.querySelector('button[onclick="app.useCurrentLocation()"]').style.display = 'block';
                 }
             },
 
-            async submitAttendance() {
-                const studentId = document.getElementById('student_id').value.trim().toUpperCase();
-                const password = document.getElementById('password')?.value;
+            closeLocationModal: function() {
+                document.getElementById('locationModal').classList.add('hidden');
+                document.body.style.overflow = 'auto';
+                this.selectedLocation = null;
+            },
+
+            useCurrentLocation: function() {
+                // If on PC (TA), don't allow automatic location
+                if (this.isPC) {
+                    this.showMessage('As a TA, please manually enter the class location', 'warning');
+                    return;
+                }
+
+                if (navigator.geolocation) {
+                    this.showMessage('Getting your current location...', 'info');
+                    navigator.geolocation.getCurrentPosition((pos) => {
+                        const location = {
+                            lat: pos.coords.latitude,
+                            lng: pos.coords.longitude
+                        };
+                        
+                        if (this.map) {
+                            this.map.setCenter(location);
+                            this.marker.setPosition(location);
+                            this.selectedLocation = location;
+                        }
+                        
+                        this.showMessage('Current location set successfully!', 'success');
+                    }, (err) => {
+                        this.showMessage('Could not get current location: ' + err.message + '. Please enter location manually.', 'danger');
+                    });
+                } else {
+                    this.showMessage('Geolocation is not supported by your browser. Please enter location manually.', 'danger');
+                }
+            },
+
+            confirmLocation: function() {
+                if (!this.selectedLocation) {
+                    this.showMessage('Please select a location on the map', 'danger');
+                    return;
+                }
                 
-                if (!studentId) {
-                    this.showMessage('Please enter your student ID', 'danger');
+                // Add validation for PC users (TAs)
+                if (this.isPC && !document.getElementById('locationSearch').value.trim()) {
+                    this.showMessage('Please enter a location description in the search box', 'warning');
                     return;
                 }
+                
+                this.classLocation = this.selectedLocation;
+                this.showMessage('Location confirmed successfully!', 'success');
+                this.closeLocationModal();
+            },
 
-                if (!this.currentToken) {
-                    this.showMessage('Invalid or missing token. Please scan the QR code again.', 'danger');
-                    return;
+            updateSubjectName: function() {
+                const newSubject = document.getElementById('subjectNameInput').value.trim();
+                if (newSubject) {
+                    this.subjectName = newSubject;
+                    this.showMessage('Subject name updated successfully!', 'success');
+                } else {
+                    this.showMessage('Please enter a valid subject name', 'danger');
+                }
+            },
+
+            setupDragAndDrop: function() {
+                const fileUpload = document.querySelector('.file-upload');
+                const fileInput = document.getElementById('roster');
+                const fileNameSpan = document.getElementById('fileName');
+
+                ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                    fileUpload.addEventListener(eventName, preventDefaults, false);
+                });
+
+                function preventDefaults(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
                 }
 
-                if (this.sessionData.password && password !== this.sessionData.password) {
-                    this.showMessage('Invalid password', 'danger');
-                    return;
+                ['dragenter', 'dragover'].forEach(eventName => {
+                    fileUpload.addEventListener(eventName, highlight, false);
+                });
+
+                ['dragleave', 'drop'].forEach(eventName => {
+                    fileUpload.addEventListener(eventName, unhighlight, false);
+                });
+
+                function highlight() {
+                    fileUpload.classList.add('bg-blue-50');
+                    fileUpload.style.borderColor = 'var(--primary)';
                 }
 
-                // Get current device fingerprint
-                const deviceData = {
-                    userAgent: navigator.userAgent,
-                    language: navigator.language,
-                    platform: navigator.platform,
-                    screenResolution: `${window.screen.width}x${window.screen.height}`,
-                    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                    colorDepth: window.screen.colorDepth,
-                    pixelRatio: window.devicePixelRatio,
-                    hardwareConcurrency: navigator.hardwareConcurrency,
-                    deviceMemory: navigator.deviceMemory
-                };
-                const deviceHash = this.hashCode(JSON.stringify(deviceData));
+                function unhighlight() {
+                    fileUpload.classList.remove('bg-blue-50');
+                    fileUpload.style.borderColor = '#d1d5db';
+                }
 
-                try {
-                    // First verify if the token is still valid
-                    const sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
-                    const sessionSnap = await window.dbGet(sessionRef);
-                    const sessionData = sessionSnap.val();
+                fileUpload.addEventListener('drop', handleDrop, false);
 
-                    if (!sessionData || !sessionData.active) {
-                        this.showMessage('This session is no longer active', 'danger');
-                        this.showClosedSession();
-                        return;
-                    }
-
-                    // Check if token has been used
-                    if (sessionData.usedTokens && sessionData.usedTokens[this.currentToken]) {
-                        this.showMessage('This token has already been used. Please scan the QR code again.', 'danger');
-                        return;
-                    }
-
-                    const currentIP = await fetch('https://api.ipify.org?format=json')
-                        .then(r => r.json())
-                        .then(data => data.ip)
-                        .catch(() => 'unknown');
-
-                    // Check if student exists in roster
-                    const student = sessionData.roster.find(s => s.id.toUpperCase() === studentId);
-                    if (!student) {
-                        this.showMessage('Student ID not found in roster', 'danger');
-                        return;
-                    }
-
-                    // Check if student already submitted attendance
-                    const attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
-                    const attendeesSnap = await window.dbGet(attendeesRef);
-                    const attendees = attendeesSnap.val() || {};
+                function handleDrop(e) {
+                    const dt = e.dataTransfer;
+                    const files = dt.files;
                     
-                    if (Object.values(attendees).some(a => a.id.toUpperCase() === studentId)) {
-                        this.showMessage('Attendance already recorded for this student', 'danger');
+                    if (files.length) {
+                        fileInput.files = files;
+                        fileNameSpan.textContent = files[0].name;
+                        
+                        const fileName = files[0].name;
+                        const subjectFromFile = fileName.replace(/\.[^/.]+$/, "").replace(/_/g, ' ');
+                        document.getElementById('subjectNameInput').value = subjectFromFile;
+                    }
+                }
+            },
+
+            initializeApp: function() {
+                const rosterInput = document.getElementById('roster');
+                const fileNameSpan = document.getElementById('fileName');
+                const uploadForm = document.getElementById('uploadForm');
+                const rosterInfoDiv = document.getElementById('rosterInfo');
+                const studentCountSpan = document.getElementById('studentCount');
+                const weekCountSpan = document.getElementById('weekCount');
+                const sessionForm = document.getElementById('sessionForm');
+                const createSessionBtn = document.getElementById('createSessionBtn');
+                
+                rosterInput.addEventListener('change', function(e) {
+                    if (this.files.length > 0) {
+                        const file = this.files[0];
+                        fileNameSpan.textContent = file.name;
+                        
+                        const subjectFromFile = file.name.replace(/\.[^/.]+$/, "").replace(/_/g, ' ');
+                        document.getElementById('subjectNameInput').value = subjectFromFile;
+                    } else {
+                        fileNameSpan.textContent = 'No file chosen';
+                    }
+                });
+                
+                uploadForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    if (rosterInput.files.length === 0) {
+                        app.showMessage('Please select a file first', 'danger');
                         return;
                     }
+                    
+                    const file = rosterInput.files[0];
+                    const reader = new FileReader();
+                    
+                    reader.onload = function(e) {
+                        try {
+                            const data = new Uint8Array(e.target.result);
+                            const workbook = XLSX.read(data, { type: 'array' });
+                            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                            const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+                            
+                            const weekColumns = {};
+                            let maxWeek = 0;
+                            
+                            if (jsonData.length > 0) {
+                                Object.keys(jsonData[0]).forEach(key => {
+                                    const lowerKey = key.toLowerCase();
+                                    if (lowerKey.includes('timestamp')) return;
 
-                    // Prepare the attendance record
-                    const newAttendee = {
-                        id: student.id,
-                        name: student.name,
-                        section: student.section || '',
-                        timestamp: Date.now(),
-                        ip: currentIP,
-                        token: this.currentToken,
-                        deviceHash: deviceHash,
-                        deviceData: deviceData,
-                        isFromTaIp: currentIP === sessionData.taIpAddress
+                                    const match = key.match(/week[\s_]?(\d+)/i);
+                                    if (match) {
+                                        const weekNum = parseInt(match[1]);
+                                        if (!isNaN(weekNum)) {
+                                            weekColumns[weekNum] = key;
+                                            if (weekNum > maxWeek) maxWeek = weekNum;
+                                        }
+                                    }
+                                });
+                            }
+                            
+                            app.rosterData = jsonData.map(row => {
+                                const id = String(row['Student ID'] || row['ID'] || row['id'] || row['StudentID'] || row['student_id'] || '').trim();
+                                const name = (row['Name'] || row['Student Name'] || row['name'] || row['StudentName'] || row['student_name'] || '').trim();
+                                const section = (row['Section'] || row['Class'] || row['section'] || row['class'] || '').trim();
+                                
+                                const weekData = {};
+                                Object.keys(weekColumns).forEach(weekNum => {
+                                    const rawValue = row[weekColumns[weekNum]];
+                                    const cleaned = String(rawValue || '').trim().toLowerCase();
+                                    const presentValues = ['1', 'yes', '✓', 'present', 'x'];
+                                    weekData[weekNum] = presentValues.includes(cleaned) ? 1 : 0;
+                                    if (rawValue && typeof rawValue === 'string' && (rawValue.includes('/') || rawValue.includes(':'))) {
+                                        row[`Timestamp Week ${weekNum}`] = rawValue;
+                                    }
+                                });
+                                
+                                return { id, name, section, weekData, ...row };
+                            }).filter(student => student.id && student.name);
+                            
+                            if (app.rosterData.length === 0) {
+                                app.showMessage('No valid student data found. Please check your file format.', 'danger');
+                                return;
+                            }
+                            
+                            app.subjectName = document.getElementById('subjectNameInput').value || 
+                                             file.name.replace(/\.(xlsx|csv)$/i, '').replace(/_/g, ' ');
+                            
+                            app.existingWeeks = Object.keys(weekColumns).map(Number).sort((a, b) => a - b);
+                            app.maxExistingWeek = maxWeek;
+                            
+                            studentCountSpan.textContent = app.rosterData.length;
+                            weekCountSpan.textContent = app.existingWeeks.length > 0 ? 
+                                app.existingWeeks.join(', ') : 'None (New Session)';
+                            rosterInfoDiv.classList.remove('hidden');
+                            createSessionBtn.disabled = false;
+                            
+                            app.showMessage('Roster uploaded successfully!', 'success');
+                        } catch (error) {
+                            console.error(error);
+                            app.showMessage('Error processing file. Please check the format.', 'danger');
+                        }
                     };
+                    
+                    reader.onerror = function() {
+                        app.showMessage('Error reading file', 'danger');
+                    };
+                    
+                    reader.readAsArrayBuffer(file);
+                });
+                
+                sessionForm.addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    const week = document.getElementById('week').value;
+                    const password = document.getElementById('password').value || null;
+                    const maxAttendees = parseInt(document.getElementById('max_attendees').value);
+                    const taEmail = document.getElementById('ta_email').value;
+                    const useLocation = document.getElementById('useLocation').checked;
+                    const locationDistance = document.getElementById('locationDistance').value || 50;
+                    
+                    if (!app.subjectName || !week || !maxAttendees || !taEmail) {
+                        app.showMessage('Please upload roster and fill required fields', 'danger');
+                        return;
+                    }
+                    
+                    document.getElementById('sessionsContainer').innerHTML = '';
+                    
+                    const finalizeSession = async () => {
+                        try {
+                            const sessionId = 'session_' + Date.now();
+                            
+                            // Generate predetermined tokens
+                            const sessionTokens = app.generateSessionTokens(maxAttendees);
+                            
+                            // Get TA's IP address
+                            const taIpAddress = await fetch('https://api.ipify.org?format=json')
+                                .then(r => r.json())
+                                .then(data => data.ip)
+                                .catch(() => 'unknown');
 
-                    // Update everything atomically
-                    const updates = {
-                        [`sessions/${this.currentSessionId}/usedTokens/${this.currentToken}`]: {
-                            id: studentId,
-                            ip: currentIP,
-                            timestamp: Date.now(),
-                            deviceHash: deviceHash,
-                            deviceData: deviceData
+                            const newSession = {
+                                id: sessionId,
+                                subject: app.subjectName,
+                                week,
+                                password,
+                                maxAttendees,
+                                roster: app.rosterData,
+                                taEmail,
+                                createdAt: window.dbServerTimestamp(),
+                                active: true,
+                                attendeeCount: 0,
+                                useLocation,
+                                locationDistance,
+                                deviceId: app.deviceId,
+                                existingWeeks: [...app.existingWeeks],
+                                maxExistingWeek: app.maxExistingWeek,
+                                taIpAddress: taIpAddress,
+                                availableTokens: sessionTokens,
+                                usedTokens: {}
+                            };
+                            
+                            if (useLocation && app.classLocation) {
+                                newSession.classLocation = app.classLocation;
+                            }
+                            
+                            try {
+                                const sessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
+                                await window.dbSet(sessionRef, newSession);
+                                app.saveSessionToLocal(newSession);
+                                
+                                const attendeesRef = window.dbRef(window.database, `sessions/${sessionId}/attendees`);
+                                
+                                const sessionData = {
+                                    ...newSession,
+                                    sessionRef,
+                                    attendeesRef,
+                                    syncStatus: 'connecting'
+                                };
+                                
+                                app.currentSessions.push(sessionData);
+                                app.displaySession(sessionData);
+                                
+                                window.dbOnValue(attendeesRef, (snapshot) => {
+                                    const attendees = snapshot.val() || {};
+                                    const attendeeList = Object.values(attendees);
+                                    sessionData.attendees = attendeeList;
+                                    sessionData.attendeeCount = attendeeList.length;
+                                    
+                                    app.updateSessionDisplay(sessionData);
+                                    
+                                    if (attendeeList.length >= maxAttendees && sessionData.active) {
+                                        app.endSession(sessionData.id);
+                                    }
+                                    
+                                    app.saveSessionToLocal(sessionData);
+                                });
+                                
+                                app.showMessage('Attendance session started successfully!', 'success');
+                                app.addToSessionHistory(sessionData);
+                                document.getElementById('sessionHistoryCard').classList.remove('hidden');
+                                
+                            } catch (error) {
+                                console.error('Error creating session:', error);
+                                app.showMessage('Failed to create session. Please try again.', 'danger');
+                            }
+                        } catch (error) {
+                            console.error('Error:', error);
+                            app.showMessage('Failed to create session. Please try again.', 'danger');
                         }
                     };
 
-                    // Add the attendance record
-                    const newAttendeeRef = window.dbPush(attendeesRef);
-                    updates[`sessions/${this.currentSessionId}/attendees/${newAttendeeRef.key}`] = newAttendee;
+                    if (useLocation && !app.classLocation && navigator.geolocation) {
+                        navigator.geolocation.getCurrentPosition(pos => {
+                            app.classLocation = {
+                                lat: pos.coords.latitude,
+                                lng: pos.coords.longitude,
+                                accuracy: pos.coords.accuracy
+                            };
+                            finalizeSession();
+                        }, err => {
+                            console.error('Location error:', err);
+                            app.showMessage('Location access denied. Session will start without location verification.', 'warning');
+                            finalizeSession();
+                        }, { enableHighAccuracy: true, timeout: 10000 });
+                    } else {
+                        finalizeSession();
+                    }
+                });
+            },
 
-                    // Perform the atomic update
-                    await window.dbSet(window.dbRef(window.database), updates);
+            displaySession: function(sessionData) {
+                const sessionsContainer = document.getElementById('sessionsContainer');
+                const sessionId = sessionData.id;
+                
+                // Create basic session URL without token
+                const baseUrl = `${window.location.origin}/form.html?session=${sessionId}`;
+                
+                const sessionCard = document.createElement('div');
+                sessionCard.className = 'card session-card';
+                sessionCard.id = `sessionCard_${sessionId}`;
+                sessionCard.innerHTML = `
+                    <div class="session-status session-active" id="sessionStatus_${sessionId}">
+                        <i class="fas fa-broadcast-tower"></i> 
+                        <span>Session Active & Live</span>
+                        <div class="sync-status">
+                            <div class="sync-indicator" id="syncIndicator_${sessionId}"></div>
+                            <span id="syncStatus_${sessionId}">Connecting...</span>
+                        </div>
+                    </div>
                     
-                    this.showMessage(`Attendance recorded successfully for ${student.name}!`, 'success');
-                    document.getElementById('student_id').value = '';
-                    if (password) document.getElementById('password').value = '';
+                    <h2><i class="fas fa-users-cog"></i> Live Session Dashboard</h2>
                     
-                    // Disable form after successful submission
-                    document.getElementById('attendanceForm').innerHTML = `
-                        <div class="alert alert-success">
-                            <i class="fas fa-check-circle"></i>
-                            Attendance recorded successfully!
+                    <div class="flex gap-4 mb-4">
+                        <div class="flex-1">
+                            <label><strong><i class="fas fa-graduation-cap"></i> Subject:</strong></label>
+                            <p id="currentSubject_${sessionId}">${sessionData.subject}</p>
+                        </div>
+                        <div class="flex-1">
+                            <label><strong><i class="fas fa-calendar"></i> Week:</strong></label>
+                            <p id="currentWeek_${sessionId}">${sessionData.week}</p>
+                        </div>
+                    </div>
+                    
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill_${sessionId}" style="width: 0%"></div>
+                        </div>
+                        <div class="progress-text">
+                            <span><strong>Attendance Progress</strong></span>
+                            <span><span id="attendedCount_${sessionId}">0</span> / <span id="maxAttendeesDisplay_${sessionId}">${sessionData.maxAttendees}</span> Students</span>
+                        </div>
+                    </div>
+                    
+                    <div class="text-center mb-4">
+                        <div id="qrcode_${sessionId}"></div>
+                        <button onclick="app.openFullscreenQR('${sessionId}')" class="btn btn-secondary mt-2">
+                            <i class="fas fa-expand"></i> Fullscreen QR
+                        </button>
+                        <p style="color: #6b7280; margin-top: 1rem;">Students can scan this QR code to mark attendance</p>
+                    </div>
+                    
+                    <div class="form-group session-url">
+                        <label><strong><i class="fas fa-link"></i> Student Access Link:</strong></label>
+                        <div class="input-group">
+                            <input type="text" id="sessionUrl_${sessionId}" value="${baseUrl}" readonly>
+                            <button type="button" class="btn btn-secondary copy-btn" onclick="app.copyToClipboard('${sessionId}')">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label><strong><i class="fas fa-clock"></i> Live Attendance Feed:</strong></label>
+                        <div id="attendanceList_${sessionId}" class="attendance-list">
+                            <div style="padding: 2rem; text-align: center; color: #6b7280;">
+                                <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;"></i>
+                                <p>Waiting for students to join...</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex gap-4 mt-4">
+                        <button onclick="app.exportAttendanceReport('${sessionId}')" class="btn btn-success flex-1">
+                            <i class="fas fa-download"></i> Export Report
+                        </button>
+                        
+                        <button onclick="app.endSession('${sessionId}')" class="btn btn-danger flex-1">
+                            <i class="fas fa-stop-circle"></i> End Session
+                        </button>
+                    </div>
+                `;
+                
+                sessionsContainer.appendChild(sessionCard);
+                
+                // Generate QR code with base URL (without token)
+                const qr = qrcode(0, 'L');
+                qr.addData(baseUrl);
+                qr.make();
+                document.getElementById(`qrcode_${sessionId}`).innerHTML = qr.createImgTag(5);
+                
+                // Set the URL input field
+                document.getElementById(`sessionUrl_${sessionId}`).value = baseUrl;
+            },
+
+            updateSessionDisplay: function(sessionData) {
+                const sessionId = sessionData.id;
+                document.getElementById(`attendedCount_${sessionId}`).textContent = sessionData.attendeeCount || 0;
+                document.getElementById(`progressFill_${sessionId}`).style.width = 
+                    `${(sessionData.attendeeCount / sessionData.maxAttendees) * 100}%`;
+                
+                this.updateAttendanceList(sessionData);
+            },
+
+            updateAttendanceList: function(sessionData) {
+                const sessionId = sessionData.id;
+                const attendanceListDiv = document.getElementById(`attendanceList_${sessionId}`);
+                const attendees = sessionData.attendees || [];
+                
+                if (!attendees || attendees.length === 0) {
+                    attendanceListDiv.innerHTML = `
+                        <div style="padding: 2rem; text-align: center; color: #6b7280;">
+                            <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;"></i>
+                            <p>Waiting for students to join...</p>
                         </div>
                     `;
-                    
+                    return;
+                }
+                
+                const attendeesHtml = attendees
+                    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                    .map(attendee => {
+                        return `
+                            <div class="attendee-item">
+                                <div class="attendee-info">
+                                    <span class="attendee-name">${attendee.name}</span>
+                                    <span class="attendee-details">
+                                        ID: ${attendee.id} | Section: ${attendee.section}
+                                    </span>
+                                </div>
+                                <div class="attendee-time">
+                                    ${new Date(attendee.timestamp).toLocaleTimeString()}
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                
+                attendanceListDiv.innerHTML = attendeesHtml;
+            },
+
+            exportAttendanceReport: async function(sessionId) {
+                const session = this.currentSessions.find(s => s.id === sessionId) || 
+                              JSON.parse(localStorage.getItem('sessions'))?.[sessionId];
+                
+                if (!session) {
+                    this.showMessage('Session not found or already ended', 'danger');
+                    return;
+                }
+                
+                const roster = session.roster || [];
+                const attendees = session.attendees || [];
+                const currentWeek = parseInt(session.week);
+                const subjectName = session.subject;
+                const allWeeks = [...(session.existingWeeks || []), currentWeek].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
+                
+                // Get token data
+                const usedTokens = session.usedTokens || {};
+                
+                // Build IP sharing notes
+                const ipMap = {};
+                attendees.forEach(a => {
+                    if (!a.ip || a.ip === session.taIpAddress) return;
+                    if (!ipMap[a.ip]) ipMap[a.ip] = [];
+                    ipMap[a.ip].push(a.id);
+                });
+
+                // Build token sharing notes
+                const tokenLinkNote = {};
+                Object.entries(usedTokens).forEach(([token, data]) => {
+                    // Check for IP sharing with other tokens
+                    const sameIPTokens = Object.entries(usedTokens)
+                        .filter(([t, d]) => t !== token && d.ip === data.ip)
+                        .map(([_, d]) => d.id);
+
+                    if (sameIPTokens.length > 0) {
+                        tokenLinkNote[data.id] = `Same IP with IDs: ${sameIPTokens.join(', ')}`;
+                    }
+                });
+
+                let reportData = [];
+                
+                if (session.existingWeeks?.length > 0) {
+                    reportData = roster.map(student => {
+                        const matched = attendees.find(a => a.id === student.id);
+                        const newRow = {
+                            'Student ID': student.id,
+                            'Name': student.name,
+                            'Section': student.section || ''
+                        };
+                        
+                        allWeeks.forEach(week => {
+                            if (week === currentWeek) {
+                                // Only prevent attendance for students who used someone else's token
+                                const hasTokenFlag = tokenLinkNote[student.id] ? true : false;
+                                newRow[`Week ${week}`] = matched && !hasTokenFlag ? 1 : 0;
+                                newRow[`Timestamp Week ${week}`] = matched ? 
+                                    new Date(matched.timestamp).toLocaleString() : 'N/A';
+                            } else {
+                                newRow[`Week ${week}`] = student.weekData?.[week] || 0;
+                                newRow[`Timestamp Week ${week}`] = student[`Timestamp Week ${week}`] || 'N/A';
+                            }
+                        });
+                        
+                        newRow['Total Attendance'] = allWeeks.reduce((sum, week) => {
+                            return sum + (Number(newRow[`Week ${week}`]) || 0);
+                        }, 0);
+
+                        // Add IP note if applicable
+                        const ipNote = matched?.ip !== session.taIpAddress && ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
+                            `IP shared with IDs: ${ipMap[matched.ip].filter(id => id !== student.id).join(', ')}` : '';
+                            
+                        // Add token note if applicable
+                        const tokenNote = tokenLinkNote[student.id] || '';
+                        
+                        // Combine notes
+                        newRow['Note'] = [tokenNote, ipNote].filter(Boolean).join(' | ');
+                        
+                        // Add flagged column if token was misused
+                        newRow['Flagged'] = tokenNote ? 'Yes' : '';
+                        
+                        return newRow;
+                    });
+                } else {
+                    reportData = roster.map(student => {
+                        const matched = attendees.find(a => a.id === student.id);
+                        // Only prevent attendance for students who used someone else's token
+                        const hasTokenFlag = tokenLinkNote[student.id] ? true : false;
+                        const row = {
+                            'Student ID': student.id,
+                            'Name': student.name,
+                            'Section': student.section || '',
+                            [`Week ${currentWeek}`]: matched && !hasTokenFlag ? 1 : 0,
+                            'Total Attendance': matched && !hasTokenFlag ? 1 : 0,
+                            [`Timestamp Week ${currentWeek}`]: matched ? 
+                                new Date(matched.timestamp).toLocaleString() : 'N/A'
+                        };
+
+                        // Add IP note if applicable
+                        const ipNote = matched?.ip !== session.taIpAddress && ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
+                            `IP shared with IDs: ${ipMap[matched.ip].filter(id => id !== student.id).join(', ')}` : '';
+                            
+                        // Add token note if applicable
+                        const tokenNote = tokenLinkNote[student.id] || '';
+                        
+                        // Combine notes
+                        row['Note'] = [tokenNote, ipNote].filter(Boolean).join(' | ');
+                        
+                        // Add flagged column if token was misused
+                        row['Flagged'] = tokenNote ? 'Yes' : '';
+                        
+                        return row;
+                    });
+                }
+                
+                const columnOrder = ['Student ID', 'Name', 'Section'];
+                
+                allWeeks.forEach(week => {
+                    columnOrder.push(`Week ${week}`);
+                });
+                
+                columnOrder.push('Total Attendance');
+                
+                allWeeks.forEach(week => {
+                    columnOrder.push(`Timestamp Week ${week}`);
+                });
+
+                // Add Note and Flagged columns
+                columnOrder.push('Note');
+                columnOrder.push('Flagged');
+                
+                const reorderedData = reportData.map(row => {
+                    const newRow = {};
+                    columnOrder.forEach(col => {
+                        if (row[col] !== undefined) {
+                            newRow[col] = row[col];
+                        }
+                    });
+                    return newRow;
+                });
+                
+                const ws = XLSX.utils.json_to_sheet(reorderedData);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Attendance");
+                
+                const today = new Date();
+                const dateStr = today.toISOString().split('T')[0];
+                let fileName;
+                
+                if (allWeeks.length > 1) {
+                    fileName = `${subjectName} Attendance from Week ${Math.min(...allWeeks)} to ${Math.max(...allWeeks)} ${dateStr}.xlsx`;
+                } else {
+                    fileName = `${subjectName} Attendance for Week ${currentWeek} ${dateStr}.xlsx`;
+                }
+                
+                fileName = fileName.replace(/[^a-zA-Z0-9\s\.\-_]/g, '').replace(/\s+/g, ' ');
+                XLSX.writeFile(wb, fileName);
+            },
+
+            endSession: async function(sessionId) {
+                try {
+                    const sessionRef = window.dbRef(window.database, `sessions/${sessionId}/active`);
+                    await window.dbSet(sessionRef, false);
+                    this.showMessage('Session ended successfully.', 'success');
+
+                    // Update local session object
+                    const sessionIndex = this.currentSessions.findIndex(s => s.id === sessionId);
+                    if (sessionIndex !== -1) {
+                        this.currentSessions[sessionIndex].active = false;
+                        this.updateSessionHistory(this.currentSessions[sessionIndex]);
+                    }
+
+                    // Update UI in main dashboard if session card exists
+                    const sessionCard = document.getElementById(`sessionCard_${sessionId}`);
+                    if (sessionCard) {
+                        sessionCard.innerHTML = `
+                            <div class="session-status session-inactive">
+                                <i class="fas fa-calendar-times"></i>
+                                <span>Session Ended</span>
+                            </div>
+
+                            <div class="session-feedback">
+                                <h2><i class="fas fa-check-circle"></i> Session Ended</h2>
+                                <p>This attendance session has ended.</p>
+                                <p>You can export the attendance report below.</p>
+
+                                <button onclick="app.exportAttendanceReport('${sessionId}')" class="btn btn-success mt-3">
+                                    <i class="fas fa-download"></i> Export Final Report
+                                </button>
+                            </div>
+                        `;
+                    }
+
+                    this.clearSessionInputs();
                 } catch (error) {
-                    console.error('Error submitting attendance:', error);
-                    this.showMessage('Failed to submit attendance. Please try again.', 'danger');
+                    console.error('Error ending session:', error);
+                    this.showMessage('Failed to end session.', 'danger');
                 }
             },
 
-            updateConnectionStatus: function(status) {
-                const indicator = document.getElementById('connectionIndicator');
-                const statusText = document.getElementById('connectionStatus');
+            clearSessionInputs: function() {
+                const rosterInput = document.getElementById('roster');
+                const fileNameSpan = document.getElementById('fileName');
+                const subjectInput = document.getElementById('subjectNameInput');
+                const weekInput = document.getElementById('week');
+                const maxAttendeesInput = document.getElementById('max_attendees');
+                const passwordInput = document.getElementById('password');
+                const emailInput = document.getElementById('ta_email');
+
+                rosterInput.value = '';
+                fileNameSpan.textContent = 'Drag & drop or click to browse files';
+                subjectInput.value = '';
+                weekInput.value = '';
+                maxAttendeesInput.value = 30;
+                passwordInput.value = '';
+                emailInput.value = '';
+                document.getElementById('rosterInfo').classList.add('hidden');
+                document.getElementById('createSessionBtn').disabled = true;
+                this.rosterData = [];
+            },
+
+            openFullscreenQR: function(sessionId) {
+                const modal = document.getElementById('qrModal');
+                const qrContainer = document.getElementById('fullscreenQr');
                 
-                if (!indicator || !statusText) return;
+                // Get the basic session URL
+                const sessionUrl = document.getElementById(`sessionUrl_${sessionId}`).value;
                 
-                indicator.className = 'status-indicator';
+                const qr = qrcode(0, 'L');
+                qr.addData(sessionUrl);
+                qr.make();
                 
-                switch (status) {
-                    case 'connected':
-                        indicator.classList.add('connected');
-                        statusText.textContent = 'Connected';
-                        break;
-                    case 'connecting':
-                        indicator.classList.add('connecting');
-                        statusText.textContent = 'Connecting...';
-                        break;
-                    case 'offline':
-                        statusText.textContent = 'Offline';
-                        break;
-                    case 'error':
-                        statusText.textContent = 'Connection Error';
-                        break;
+                qrContainer.innerHTML = qr.createImgTag(10);
+                modal.style.display = 'flex';
+                document.body.style.overflow = 'hidden';
+            },
+
+            closeFullscreenQR: function() {
+                document.getElementById('qrModal').style.display = 'none';
+                document.body.style.overflow = 'auto';
+            },
+
+            copyToClipboard: function(sessionId) {
+                const urlInput = document.getElementById(`sessionUrl_${sessionId}`);
+                urlInput.select();
+                urlInput.setSelectionRange(0, 99999);
+                document.execCommand('copy');
+                
+                const copyBtn = event.target.closest('.copy-btn');
+                const originalText = copyBtn.innerHTML;
+                copyBtn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalText;
+                }, 2000);
+            },
+
+            saveSessionToLocal: function(session) {
+                const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
+                sessions[session.id] = session;
+                localStorage.setItem('sessions', JSON.stringify(sessions));
+            },
+
+            addToSessionHistory: function(session) {
+                const history = JSON.parse(localStorage.getItem('sessionHistory') || '[]');
+                history.unshift({
+                    id: session.id,
+                    subject: session.subject,
+                    week: session.week,
+                    date: new Date().toISOString(),
+                    attendees: session.attendeeCount || 0,
+                    maxAttendees: session.maxAttendees,
+                    deviceId: this.deviceId,
+                    active: session.active
+                });
+                
+                if (history.length > 10) {
+                    history.length = 10;
+                }
+                
+                localStorage.setItem('sessionHistory', JSON.stringify(history));
+                this.renderSessionHistory();
+            },
+
+            updateSessionHistory: function(updatedSession) {
+                const history = JSON.parse(localStorage.getItem('sessionHistory') || '[]');
+                const sessionIndex = history.findIndex(s => s.id === updatedSession.id);
+                
+                if (sessionIndex !== -1) {
+                    history[sessionIndex].attendees = updatedSession.attendeeCount || 0;
+                    history[sessionIndex].active = updatedSession.active;
+                    localStorage.setItem('sessionHistory', JSON.stringify(history));
+                    this.renderSessionHistory();
+                }
+            },
+
+            loadSessionHistory: function() {
+                this.renderSessionHistory();
+            },
+
+            renderSessionHistory: function() {
+                const historyList = document.getElementById('sessionHistoryList');
+                const history = JSON.parse(localStorage.getItem('sessionHistory') || '[]')
+                    .filter(session => session.deviceId === this.deviceId);
+                
+                if (history.length === 0) {
+                    historyList.innerHTML = '<p>No previous sessions found</p>';
+                    document.getElementById('sessionHistoryCard').classList.add('hidden');
+                    return;
+                }
+                
+                historyList.innerHTML = history.map(session => `
+                    <div class="session-item">
+                        <div>
+                            <strong>${session.subject}</strong> - Week ${session.week}
+                            <div class="text-sm text-gray-500">
+                                ${new Date(session.date).toLocaleString()} | 
+                                ${session.attendees}/${session.maxAttendees} students
+                                ${session.active ? '<span class="text-green-500">(Active)</span>' : ''}
+                            </div>
+                        </div>
+                        <div class="session-actions">
+                            <button onclick="app.generateSessionQR('${session.id}')" class="btn btn-secondary" title="QR Code">
+                                <i class="fas fa-qrcode"></i>
+                            </button>
+                            <button onclick="app.copySessionLink('${session.id}')" class="btn btn-secondary" title="Copy Link">
+                                <i class="fas fa-link"></i>
+                            </button>
+                            <button onclick="app.downloadSessionReport('${session.id}')" class="btn btn-secondary" title="Download Report">
+                                <i class="fas fa-download"></i>
+                            </button>
+                            ${session.active ? `
+                                <button onclick="app.endSession('${session.id}')" class="btn btn-danger" title="End Session">
+                                    <i class="fas fa-stop-circle"></i>
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                `).join('');
+                
+                document.getElementById('sessionHistoryCard').classList.remove('hidden');
+            },
+
+            clearSessionHistory: function() {
+                localStorage.removeItem('sessionHistory');
+                this.renderSessionHistory();
+                this.showMessage('Session history cleared.', 'success');
+            },
+
+            generateSessionQR: function(sessionId) {
+                const formUrl = `${window.location.origin}/form.html?session=${sessionId}`;
+                const qr = qrcode(0, 'L');
+                qr.addData(formUrl);
+                qr.make();
+                
+                const qrContainer = document.getElementById('fullscreenQr');
+                qrContainer.innerHTML = qr.createImgTag(10);
+                document.getElementById('qrModal').style.display = 'flex';
+                document.body.style.overflow = 'hidden';
+            },
+
+            copySessionLink: function(sessionId) {
+                const formUrl = `${window.location.origin}/form.html?session=${sessionId}`;
+                navigator.clipboard.writeText(formUrl)
+                    .then(() => {
+                        this.showMessage('Session link copied to clipboard!', 'success');
+                    })
+                    .catch(err => {
+                        this.showMessage('Failed to copy link', 'danger');
+                        console.error('Could not copy text: ', err);
+                    });
+            },
+
+            downloadSessionReport: async function(sessionId) {
+                const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
+                const session = sessions[sessionId];
+                
+                if (!session) {
+                    this.showMessage('Session data not found', 'danger');
+                    return;
+                }
+                
+                const roster = session.roster || [];
+                const attendees = session.attendees || [];
+                const week = session.week;
+                const subjectName = session.subject;
+                const allWeeks = [...(session.existingWeeks || []), week].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
+                
+                // Get token data
+                const usedTokens = session.usedTokens || {};
+                
+                // Build IP sharing notes
+                const ipMap = {};
+                attendees.forEach(a => {
+                    if (!a.ip || a.ip === session.taIpAddress) return;
+                    if (!ipMap[a.ip]) ipMap[a.ip] = [];
+                    ipMap[a.ip].push(a.id);
+                });
+
+                // Build token sharing notes
+                const tokenLinkNote = {};
+                Object.entries(usedTokens).forEach(([token, data]) => {
+                    // Check for IP sharing with other tokens
+                    const sameIPTokens = Object.entries(usedTokens)
+                        .filter(([t, d]) => t !== token && d.ip === data.ip)
+                        .map(([_, d]) => d.id);
+
+                    if (sameIPTokens.length > 0) {
+                        tokenLinkNote[data.id] = `Same IP with IDs: ${sameIPTokens.join(', ')}`;
+                    }
+                });
+
+                const data = roster.map(student => {
+                    const matched = attendees.find(a => a.id === student.id);
+                    const row = {
+                        'Student ID': student.id,
+                        'Name': student.name,
+                        'Section': student.section || ''
+                    };
+                    
+                    allWeeks.forEach(w => {
+                        if (w === week) {
+                            row[`Week ${w}`] = matched ? 1 : 0;
+                            row[`Timestamp Week ${w}`] = matched ? 
+                                new Date(attendees.find(a => a.id === student.id).timestamp).toLocaleString() : 'N/A';
+                        } else {
+                            row[`Week ${w}`] = student.weekData?.[w] || 0;
+                            row[`Timestamp Week ${w}`] = student[`Timestamp Week ${w}`] || 'N/A';
+                        }
+                    });
+                    
+                    row['Total Attendance'] = allWeeks.reduce((sum, w) => sum + (Number(row[`Week ${w}`]) || 0), 0);
+
+                    // Add IP note if applicable
+                    const ipNote = ipMap[matched?.ip]?.filter(id => id !== student.id).length > 0 ? 
+                        `IP shared with IDs: ${ipMap[matched.ip].filter(id => id !== student.id).join(', ')}` : '';
+                        
+                    // Add token note if applicable
+                    const tokenNote = tokenLinkNote[student.id] || '';
+                    
+                    // Combine notes
+                    row['Note'] = [tokenNote, ipNote].filter(Boolean).join(' | ');
+                    
+                    // Add flagged column if token was misused
+                    row['Flagged'] = tokenNote ? 'Yes' : '';
+                    
+                    return row;
+                });
+                
+                const columnOrder = ['Student ID', 'Name', 'Section'];
+                
+                allWeeks.forEach(week => {
+                    columnOrder.push(`Week ${week}`);
+                });
+                
+                columnOrder.push('Total Attendance');
+                
+                allWeeks.forEach(week => {
+                    columnOrder.push(`Timestamp Week ${week}`);
+                });
+
+                // Add Note and Flagged columns
+                columnOrder.push('Note');
+                columnOrder.push('Flagged');
+                
+                const reorderedData = data.map(row => {
+                    const newRow = {};
+                    columnOrder.forEach(col => {
+                        if (row[col] !== undefined) {
+                            newRow[col] = row[col];
+                        }
+                    });
+                    return newRow;
+                });
+                
+                const ws = XLSX.utils.json_to_sheet(reorderedData);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Attendance");
+                
+                const today = new Date();
+                const dateStr = today.toISOString().split('T')[0];
+                let fileName;
+                
+                if (allWeeks.length > 1) {
+                    fileName = `${subjectName} Attendance from Week ${Math.min(...allWeeks)} to ${Math.max(...allWeeks)} ${dateStr}.xlsx`;
+                } else {
+                    fileName = `${subjectName} Attendance for Week ${week} ${dateStr}.xlsx`;
+                }
+                
+                XLSX.writeFile(wb, fileName);
+            },
+
+            initVoiceCommands: function() {
+                try {
+                    if ('webkitSpeechRecognition' in window) {
+                        this.recognition = new webkitSpeechRecognition();
+                    } else if ('SpeechRecognition' in window) {
+                        this.recognition = new SpeechRecognition();
+                    } else {
+                        throw new Error('Speech recognition not supported');
+                    }
+                    
+                    this.recognition.continuous = false;
+                    this.recognition.interimResults = false;
+                    this.recognition.lang = 'en-US';
+                    
+                    this.recognition.onresult = (event) => {
+                        const transcript = event.results[0][0].transcript.toLowerCase();
+                        this.handleVoiceCommand(transcript);
+                    };
+                    
+                    this.recognition.onerror = (event) => {
+                        console.error('Voice recognition error', event.error);
+                        if (event.error === 'not-allowed') {
+                            this.showMessage('Microphone access denied. Please enable microphone permissions.', 'danger');
+                        }
+                    };
+                    
+                    document.getElementById('voiceBtn').addEventListener('click', () => {
+                        try {
+                            navigator.mediaDevices.getUserMedia({ audio: true })
+                                .then(() => {
+                                    this.recognition.start();
+                                    document.getElementById('voiceBtn').innerHTML = '<i class="fas fa-microphone-slash"></i>';
+                                    this.showMessage('Listening for commands...', 'info');
+                                })
+                                .catch(err => {
+                                    console.error('Microphone access error:', err);
+                                    this.showMessage('Microphone access required for voice commands', 'danger');
+                                });
+                        } catch (error) {
+                            console.error('Voice recognition failed:', error);
+                            this.showMessage('Voice commands not supported in your browser', 'danger');
+                        }
+                    });
+                    
+                    this.recognition.onend = () => {
+                        document.getElementById('voiceBtn').innerHTML = '<i class="fas fa-microphone"></i>';
+                    };
+                } catch (error) {
+                    console.error('Voice recognition not supported:', error);
+                    document.getElementById('voiceBtn').style.display = 'none';
+                }
+            },
+
+            handleVoiceCommand: function(command) {
+                this.showMessage(`Heard: "${command}"`, 'info');
+                
+                if (command.includes('start session') || command.includes('begin session')) {
+                    if (!document.getElementById('createSessionBtn').disabled) {
+                        document.getElementById('sessionForm').dispatchEvent(new Event('submit'));
+                    } else {
+                        this.showMessage('Please upload a roster first', 'warning');
+                    }
+                } else if (command.includes('end session') || command.includes('stop session')) {
+                    const activeSession = this.currentSessions.find(s => s.active);
+                    if (activeSession) {
+                        this.endSession(activeSession.id);
+                    } else {
+                        this.showMessage('No active session to end', 'warning');
+                    }
+                } else if (command.includes('fullscreen') || command.includes('show qr')) {
+                    const activeSession = this.currentSessions.find(s => s.active);
+                    if (activeSession) {
+                        this.openFullscreenQR(activeSession.id);
+                    } else {
+                        this.showMessage('No active session to show QR code', 'warning');
+                    }
+                } else if (command.includes('copy link') || command.includes('session link')) {
+                    const activeSession = this.currentSessions.find(s => s.active);
+                    if (activeSession) {
+                        this.copyToClipboard(activeSession.id);
+                    } else {
+                        this.showMessage('No active session to copy link', 'warning');
+                    }
+                } else {
+                    this.showMessage('Command not recognized. Try "start session" or "end session"', 'warning');
                 }
             },
 
@@ -889,73 +2236,172 @@
                 messageDiv.className = `alert alert-${type}`;
                 messageDiv.classList.remove('hidden');
                 
-                if (text) {
-                    setTimeout(() => {
-                        messageDiv.classList.add('hidden');
-                    }, 5000);
+                setTimeout(() => {
+                    messageDiv.classList.add('hidden');
+                }, 5000);
+            },
+
+            generateSessionTokens: function(maxAttendees) {
+                const tokens = [];
+                for (let i = 0; i < maxAttendees; i++) {
+                    // Generate a more secure token with timestamp and random components
+                    const timestamp = Date.now();
+                    const random = Math.random().toString(36).substring(2);
+                    const token = `${timestamp}_${random}_${i}`;
+                    tokens.push(token);
+                }
+                return tokens;
+            },
+
+            createSession: async function() {
+                try {
+                    // Verify Firebase connection
+                    if (!window.database || !window.dbRef || !window.dbSet) {
+                        this.showMessage('Database connection not ready. Please refresh the page.', 'danger');
+                        return;
+                    }
+
+                    const subject = document.getElementById('subject').value.trim();
+                    const week = document.getElementById('week').value.trim();
+                    const maxAttendees = parseInt(document.getElementById('maxAttendees').value);
+                    const password = document.getElementById('password').value.trim();
+                    const taEmail = document.getElementById('ta_email').value.trim();
+                    
+                    if (!subject || !week || isNaN(maxAttendees) || maxAttendees <= 0 || !taEmail) {
+                        this.showMessage('Please fill all required fields correctly', 'danger');
+                        return;
+                    }
+
+                    // Generate tokens
+                    const tokens = [];
+                    for (let i = 0; i < maxAttendees; i++) {
+                        tokens.push(this.generateToken());
+                    }
+
+                    // Create session data
+                    const sessionData = {
+                        subject: subject,
+                        week: week,
+                        maxAttendees: maxAttendees,
+                        password: password || null,
+                        active: true,
+                        createdAt: window.dbServerTimestamp(),
+                        availableTokens: tokens,
+                        usedTokens: {},
+                        attendees: {},
+                        taEmail: taEmail
+                    };
+
+                    // Get a new session reference with timeout
+                    try {
+                        const newSessionRef = window.dbPush(this.sessionsRef);
+                        const sessionId = newSessionRef.key;
+
+                        // Save session data with timeout
+                        await Promise.race([
+                            window.dbSet(newSessionRef, sessionData),
+                            new Promise((_, reject) => 
+                                setTimeout(() => reject(new Error('Connection timeout')), 10000)
+                            )
+                        ]);
+
+                        // Generate QR code and link
+                        const sessionUrl = `${window.location.origin}/form.html?session=${sessionId}`;
+                        const qr = new QRCode(document.getElementById("qrcode"), {
+                            text: sessionUrl,
+                            width: 256,
+                            height: 256,
+                            colorDark: "#000000",
+                            colorLight: "#ffffff",
+                            correctLevel: QRCode.CorrectLevel.H
+                        });
+
+                        // Show session info
+                        document.getElementById('sessionLink').value = sessionUrl;
+                        document.getElementById('sessionId').textContent = sessionId;
+                        document.getElementById('createSection').classList.add('hidden');
+                        document.getElementById('activeSection').classList.remove('hidden');
+
+                        // Set up session listeners
+                        this.setupSessionListeners(sessionId);
+                        this.showMessage('Session created successfully!', 'success');
+
+                    } catch (error) {
+                        console.error('Error saving session:', error);
+                        this.showMessage('Failed to create session. Please check your connection and try again.', 'danger');
+                    }
+
+                } catch (error) {
+                    console.error('Error creating session:', error);
+                    this.showMessage('Failed to create session. Please try again.', 'danger');
                 }
             },
 
-            getFreshLocation: function() {
-                return new Promise((resolve, reject) => {
-                    if (!navigator.geolocation) {
-                        reject('Geolocation not supported');
-                        return;
+            generateToken: function() {
+                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                let token = '';
+                for (let i = 0; i < 6; i++) {
+                    token += chars.charAt(Math.floor(Math.random() * chars.length));
+                }
+                return token;
+            },
+
+            setupSessionListeners: function(sessionId) {
+                try {
+                    // Remove any existing listeners
+                    if (this.currentSessionRef) {
+                        window.dbOff(this.currentSessionRef);
                     }
-                    
-                    // Use cached location if recent (within 30 seconds)
-                    if (this.lastLocation && Date.now() - this.lastLocation.timestamp < 30000) {
-                        resolve(this.lastLocation);
-                        return;
+                    if (this.currentAttendeesRef) {
+                        window.dbOff(this.currentAttendeesRef);
                     }
-                    
-                    navigator.geolocation.getCurrentPosition(
-                        position => {
-                            const location = {
-                                lat: position.coords.latitude,
-                                lng: position.coords.longitude,
-                                accuracy: position.coords.accuracy,
-                                timestamp: Date.now()
-                            };
-                            this.lastLocation = location;
-                            resolve(location);
-                        },
-                        error => {
-                            reject(error.message);
-                        },
-                        { 
-                            enableHighAccuracy: true, 
-                            timeout: this.sessionData?.locationTimeout || 10000 
+
+                    // Set up new listeners
+                    this.currentSessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
+                    this.currentAttendeesRef = window.dbRef(window.database, `sessions/${sessionId}/attendees`);
+
+                    // Listen for session changes with error handling
+                    window.dbOnValue(this.currentSessionRef, (snapshot) => {
+                        const data = snapshot.val();
+                        if (!data) return;
+
+                        // Update session info
+                        document.getElementById('displaySubject').textContent = data.subject;
+                        document.getElementById('displayWeek').textContent = data.week;
+                        document.getElementById('displayMaxAttendees').textContent = data.maxAttendees;
+                        
+                        const availableCount = data.availableTokens ? data.availableTokens.length : 0;
+                        document.getElementById('availableSlots').textContent = availableCount;
+                        
+                        const usedCount = data.usedTokens ? Object.keys(data.usedTokens).length : 0;
+                        document.getElementById('usedSlots').textContent = usedCount;
+
+                        // Update session status
+                        if (!data.active) {
+                            document.getElementById('sessionStatus').textContent = 'Closed';
+                            document.getElementById('sessionStatus').className = 'status-closed';
+                        } else {
+                            document.getElementById('sessionStatus').textContent = 'Active';
+                            document.getElementById('sessionStatus').className = 'status-active';
                         }
-                    );
-                });
-            },
+                    }, (error) => {
+                        console.error('Session listener error:', error);
+                        this.showMessage('Connection error. Please refresh the page.', 'danger');
+                    });
 
-            calculateDistance: function(studentLoc, classLoc) {
-                if (!classLoc || !studentLoc) return Infinity;
-                
-                const R = 6371e3;
-                const φ1 = studentLoc.lat * Math.PI/180;
-                const φ2 = classLoc.lat * Math.PI/180;
-                const Δφ = (classLoc.lat - studentLoc.lat) * Math.PI/180;
-                const Δλ = (classLoc.lng - studentLoc.lng) * Math.PI/180;
-                
-                const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                          Math.cos(φ1) * Math.cos(φ2) *
-                          Math.sin(Δλ/2) * Math.sin(Δλ/2);
-                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-                
-                return R * c;
-            },
+                    // Listen for attendee changes with error handling
+                    window.dbOnValue(this.currentAttendeesRef, (snapshot) => {
+                        const attendees = snapshot.val() || {};
+                        this.updateAttendeeTable(attendees);
+                    }, (error) => {
+                        console.error('Attendees listener error:', error);
+                        this.showMessage('Error updating attendee list. Please refresh the page.', 'danger');
+                    });
 
-            hashCode: function(str) {
-                let hash = 0;
-                for (let i = 0; i < str.length; i++) {
-                    const char = str.charCodeAt(i);
-                    hash = ((hash << 5) - hash) + char;
-                    hash = hash & hash; // Convert to 32-bit integer
+                } catch (error) {
+                    console.error('Error setting up listeners:', error);
+                    this.showMessage('Failed to set up session monitoring. Please refresh the page.', 'danger');
                 }
-                return Math.abs(hash).toString(36);
             },
 
             handleConnectionLost: function() {
@@ -1017,20 +2463,9 @@
                 }
                 
                 try {
-                    // Verify session is still valid
-                    const sessionSnap = await window.dbGet(this.sessionRef);
-                    const sessionData = sessionSnap.val();
-                    
-                    if (!sessionData || !sessionData.active) {
-                        this.showClosedSession();
-                        return;
-                    }
-                    
-                    // Restore session state
-                    this.sessionData = sessionData;
-                    this.setupSessionListeners();
-                    this.showActiveSession();
-                    
+                    // Verify sessions are still valid
+                    await this.refreshSessions();
+                    this.updateConnectionStatus('connected');
                 } catch (error) {
                     console.error('Reconnection failed:', error);
                     // Schedule another attempt
@@ -1041,41 +2476,30 @@
             },
 
             saveState: function() {
-                if (this.sessionData && this.currentToken) {
-                    try {
-                        const state = {
-                            sessionId: this.currentSessionId,
-                            token: this.currentToken,
-                            timestamp: Date.now()
-                        };
-                        sessionStorage.setItem('formState', JSON.stringify(state));
-                    } catch (error) {
-                        console.error('Failed to save state:', error);
-                    }
+                try {
+                    const state = {
+                        currentSession: this.currentSession,
+                        sessions: this.sessions,
+                        timestamp: Date.now()
+                    };
+                    sessionStorage.setItem('dashboardState', JSON.stringify(state));
+                } catch (error) {
+                    console.error('Failed to save state:', error);
                 }
             },
 
             restoreState: function() {
                 try {
-                    const stateStr = sessionStorage.getItem('formState');
+                    const stateStr = sessionStorage.getItem('dashboardState');
                     if (stateStr) {
                         const state = JSON.parse(stateStr);
                         // Only restore if state is less than 5 minutes old
                         if (Date.now() - state.timestamp < 300000) {
-                            this.currentSessionId = state.sessionId;
-                            this.currentToken = state.token;
-                            
-                            // Update URL with token if not present
-                            const urlParams = new URLSearchParams(window.location.search);
-                            if (!urlParams.has('token') && this.currentToken) {
-                                const newUrl = new URL(window.location.href);
-                                newUrl.searchParams.set('token', this.currentToken);
-                                window.history.replaceState({}, '', newUrl);
-                            }
-                            
+                            this.currentSession = state.currentSession;
+                            this.sessions = state.sessions;
                             return true;
                         }
-                        sessionStorage.removeItem('formState');
+                        sessionStorage.removeItem('dashboardState');
                     }
                 } catch (error) {
                     console.error('Failed to restore state:', error);
@@ -1085,104 +2509,37 @@
 
             verifySessionState: async function() {
                 try {
-                    // Get fresh session data
-                    const sessionSnap = await window.dbGet(this.sessionRef);
-                    const sessionData = sessionSnap.val();
-                    
-                    if (!sessionData || !sessionData.active) {
-                        this.showClosedSession();
-                        return;
-                    }
-                    
-                    // Check if our token is still valid
-                    if (this.currentToken) {
-                        const isValid = await this.verifyToken(this.currentToken);
-                        if (!isValid) {
-                            // Token is invalid, try to get a new one
-                            this.currentToken = null;
-                            const newUrl = new URL(window.location.href);
-                            newUrl.searchParams.delete('token');
-                            window.history.replaceState({}, '', newUrl);
-                            await this.requestNewToken();
-                            return;
+                    await this.refreshSessions();
+                    if (this.currentSession) {
+                        const sessionRef = window.dbRef(window.database, `sessions/${this.currentSession.id}`);
+                        const snapshot = await window.dbGet(sessionRef);
+                        const sessionData = snapshot.val();
+                        
+                        if (!sessionData) {
+                            this.currentSession = null;
+                        } else {
+                            this.currentSession = { id: this.currentSession.id, ...sessionData };
                         }
                     }
-                    
-                    // Update session data and continue
-                    this.sessionData = sessionData;
-                    this.showActiveSession();
-                    this.setupSessionListeners();
-                    
+                    this.updateUI();
                 } catch (error) {
                     console.error('Failed to verify session state:', error);
-                    this.showMessage('Failed to verify session state. Please refresh the page.', 'danger');
+                    this.showMessage('Failed to verify sessions. Please refresh the page.', 'danger');
                 }
-            },
-
-            cleanup: function() {
-                // Clear all timeouts
-                if (this.connectionTimeout) clearTimeout(this.connectionTimeout);
-                if (this.reconnectionTimeout) clearTimeout(this.reconnectionTimeout);
-                
-                // Remove all listeners
-                if (this.sessionRef) window.dbOff(this.sessionRef);
-                if (this.attendeesRef) window.dbOff(this.attendeesRef);
-                
-                // Clear session data
-                this.sessionData = null;
-                this.currentToken = null;
-            },
-
-            handlePageHidden: function() {
-                // Page is hidden (tab switched, minimized, etc)
-                this.updateConnectionStatus('connecting');
-                
-                // Remove real-time listeners to save resources
-                if (this.sessionRef) window.dbOff(this.sessionRef);
-                if (this.attendeesRef) window.dbOff(this.attendeesRef);
-            },
-
-            handlePageVisible: function() {
-                // Page is visible again
-                if (!window.dbConnected) {
-                    this.handleConnectionLost();
-                    return;
-                }
-                
-                // Verify session state and restore listeners
-                this.verifySessionState();
             }
         };
 
         document.addEventListener('DOMContentLoaded', function() {
-            const form = document.getElementById('attendanceForm');
-            if (form) {
-                form.addEventListener('submit', async function(e) {
-                    e.preventDefault();
-                    await formApp.submitAttendance();
-                });
-            }
-
-            formApp.init();
-            
-            // Add cleanup handlers
-            window.addEventListener('beforeunload', function() {
-                formApp.cleanup();
-            });
-            
-            window.addEventListener('unload', function() {
-                formApp.cleanup();
-            });
-            
-            // Handle visibility change
-            document.addEventListener('visibilitychange', function() {
-                if (document.hidden) {
-                    formApp.handlePageHidden();
-                } else {
-                    formApp.handlePageVisible();
-                }
-            });
+            app.init();
         });
+
+        function initMap() {
+            if (typeof app !== 'undefined') {
+                app.initMap();
+            }
+        }
+
+        window.app = app;
     </script>
 </body>
 </html>
