@@ -13,26 +13,29 @@
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
         import { getDatabase, ref, set, onValue, push, serverTimestamp, off, get } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
 
-            const firebaseConfig = {
-                apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
-                authDomain: "eelu-attendance.firebaseapp.com",
-                databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
-                projectId: "eelu-attendance",
-                storageBucket: "eelu-attendance.appspot.com",
-                messagingSenderId: "5132239076",
-                appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
-                measurementId: "G-D2WNX8RGRL"
-            };
+        const firebaseConfig = {
+            apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
+            authDomain: "eelu-attendance.firebaseapp.com",
+            databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
+            projectId: "eelu-attendance",
+            storageBucket: "eelu-attendance.appspot.com",
+            messagingSenderId: "5132239076",
+            appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
+            measurementId: "G-D2WNX8RGRL"
+        };
 
-        const app = initializeApp(firebaseConfig);
-        window.database = getDatabase(app);
-            window.dbRef = ref;
-            window.dbSet = set;
-            window.dbOnValue = onValue;
-            window.dbPush = push;
+        const firebaseApp = initializeApp(firebaseConfig);
+        const database = getDatabase(firebaseApp);
+
+        // Make Firebase functions available globally
+        window.database = database;
+        window.dbRef = ref;
+        window.dbSet = set;
+        window.dbOnValue = onValue;
+        window.dbPush = push;
         window.dbServerTimestamp = serverTimestamp;
-            window.dbOff = off;
-            window.dbGet = get;
+        window.dbOff = off;
+        window.dbGet = get;
     </script>
     
     <style>
@@ -820,7 +823,7 @@
                             <label for="subjectNameInput"><i class="fas fa-book"></i> Subject Name</label>
                             <div style="display: flex; align-items: center;">
                                 <input type="text" id="subjectNameInput" placeholder="Enter subject name">
-                                <button type="button" class="update-subject-btn" onclick="app.updateSubjectName()">
+                                <button type="button" class="update-subject-btn" onclick="attendanceApp.updateSubjectName()">
                                     <i class="fas fa-sync-alt"></i> Update
                                 </button>
                             </div>
@@ -896,7 +899,7 @@
         <div class="card session-history hidden" id="sessionHistoryCard">
             <h2><i class="fas fa-history"></i> Session History</h2>
             <div id="sessionHistoryList"></div>
-            <button onclick="app.clearSessionHistory()" class="btn btn-danger">
+            <button onclick="attendanceApp.clearSessionHistory()" class="btn btn-danger">
                 <i class="fas fa-trash"></i> Clear History
             </button>
         </div>
@@ -906,7 +909,7 @@
     <div id="qrModal" class="qr-modal">
         <div class="qr-modal-content">
             <div id="fullscreenQr"></div>
-            <button onclick="app.closeFullscreenQR()" class="btn close-modal">
+            <button onclick="attendanceApp.closeFullscreenQR()" class="btn close-modal">
                 <i class="fas fa-times"></i> Close
             </button>
         </div>
@@ -926,7 +929,7 @@
             </div>
             
             <div class="flex gap-4 mt-4">
-                <button onclick="app.closeLocationModal()" class="btn btn-danger">
+                <button onclick="attendanceApp.closeLocationModal()" class="btn btn-danger">
                     <i class="fas fa-times"></i> Cancel
                 </button>
             </div>
@@ -939,7 +942,7 @@
     </div>
 
     <script>
-        const app = {
+        const attendanceApp = {
             rosterData: [],
             currentSessions: [],
             subjectName: '',
@@ -1047,7 +1050,7 @@
                 uploadForm.addEventListener('submit', function(e) {
                     e.preventDefault();
                     if (rosterInput.files.length === 0) {
-                        app.showMessage('Please select a file first', 'danger');
+                        attendanceApp.showMessage('Please select a file first', 'danger');
                         return;
                     }
                     
@@ -1080,7 +1083,7 @@
                                 });
                             }
                             
-                            app.rosterData = jsonData.map(row => {
+                            attendanceApp.rosterData = jsonData.map(row => {
                                 const id = String(row['Student ID'] || row['ID'] || row['id'] || row['StudentID'] || row['student_id'] || '').trim();
                                 const name = (row['Name'] || row['Student Name'] || row['name'] || row['StudentName'] || row['student_name'] || '').trim();
                                 const section = (row['Section'] || row['Class'] || row['section'] || row['class'] || '').trim();
@@ -1099,32 +1102,32 @@
                                 return { id, name, section, weekData, ...row };
                             }).filter(student => student.id && student.name);
                             
-                            if (app.rosterData.length === 0) {
-                                app.showMessage('No valid student data found. Please check your file format.', 'danger');
+                            if (attendanceApp.rosterData.length === 0) {
+                                attendanceApp.showMessage('No valid student data found. Please check your file format.', 'danger');
                                 return;
                             }
                             
-                            app.subjectName = document.getElementById('subjectNameInput').value || 
+                            attendanceApp.subjectName = document.getElementById('subjectNameInput').value || 
                                              file.name.replace(/\.(xlsx|csv)$/i, '').replace(/_/g, ' ');
                             
-                            app.existingWeeks = Object.keys(weekColumns).map(Number).sort((a, b) => a - b);
-                            app.maxExistingWeek = maxWeek;
+                            attendanceApp.existingWeeks = Object.keys(weekColumns).map(Number).sort((a, b) => a - b);
+                            attendanceApp.maxExistingWeek = maxWeek;
                             
-                            studentCountSpan.textContent = app.rosterData.length;
-                            weekCountSpan.textContent = app.existingWeeks.length > 0 ? 
-                                app.existingWeeks.join(', ') : 'None (New Session)';
+                            studentCountSpan.textContent = attendanceApp.rosterData.length;
+                            weekCountSpan.textContent = attendanceApp.existingWeeks.length > 0 ? 
+                                attendanceApp.existingWeeks.join(', ') : 'None (New Session)';
                             rosterInfoDiv.classList.remove('hidden');
                             createSessionBtn.disabled = false;
                             
-                            app.showMessage('Roster uploaded successfully!', 'success');
+                            attendanceApp.showMessage('Roster uploaded successfully!', 'success');
                         } catch (error) {
                             console.error(error);
-                            app.showMessage('Error processing file. Please check the format.', 'danger');
+                            attendanceApp.showMessage('Error processing file. Please check the format.', 'danger');
                         }
                     };
                     
                     reader.onerror = function() {
-                        app.showMessage('Error reading file', 'danger');
+                        attendanceApp.showMessage('Error reading file', 'danger');
                     };
                     
                     reader.readAsArrayBuffer(file);
@@ -1139,8 +1142,8 @@
                     const useLocation = document.getElementById('useLocation').checked;
                     const locationDistance = document.getElementById('locationDistance').value || 50;
                     
-                    if (!app.subjectName || !week || !maxAttendees || !taEmail) {
-                        app.showMessage('Please upload roster and fill required fields', 'danger');
+                    if (!attendanceApp.subjectName || !week || !maxAttendees || !taEmail) {
+                        attendanceApp.showMessage('Please upload roster and fill required fields', 'danger');
                         return;
                     }
                     
@@ -1155,7 +1158,7 @@
 
                             // Generate one token per student
                             const tokenList = {};
-                            app.rosterData.forEach(student => {
+                            attendanceApp.rosterData.forEach(student => {
                                 const token = crypto.randomUUID();
                                 tokenList[token] = {
                                     id: student.id,
@@ -1170,25 +1173,25 @@
 
                             const newSession = {
                                 id: sessionId,
-                                subject: app.subjectName,
+                                subject: attendanceApp.subjectName,
                                 week,
                                 password,
                                 maxAttendees,
-                                roster: app.rosterData,
+                                roster: attendanceApp.rosterData,
                                 taEmail,
                                 createdAt: window.dbServerTimestamp(),
                                 active: true,
                                 attendeeCount: 0,
                                 useLocation,
                                 locationDistance,
-                                deviceId: app.deviceId,
-                                existingWeeks: [...app.existingWeeks],
-                                maxExistingWeek: app.maxExistingWeek,
+                                deviceId: attendanceApp.deviceId,
+                                existingWeeks: [...attendanceApp.existingWeeks],
+                                maxExistingWeek: attendanceApp.maxExistingWeek,
                                 taIP
                             };
                             
-                            if (useLocation && app.classLocation) {
-                                newSession.classLocation = app.classLocation;
+                            if (useLocation && attendanceApp.classLocation) {
+                                newSession.classLocation = attendanceApp.classLocation;
                             }
                             
                             try {
@@ -1198,7 +1201,7 @@
                                 // Save tokens to database
                                 await window.dbSet(window.dbRef(window.database, `sessions/${sessionId}/tokens`), tokenList);
                                 
-                                app.saveSessionToLocal(newSession);
+                                attendanceApp.saveSessionToLocal(newSession);
                                 
                                 const attendeesRef = window.dbRef(window.database, `sessions/${sessionId}/attendees`);
                                 const tokensRef = window.dbRef(window.database, `sessions/${sessionId}/tokens`);
@@ -1211,8 +1214,8 @@
                                     syncStatus: 'connecting'
                                 };
                                 
-                                app.currentSessions.push(sessionData);
-                                app.displaySession(sessionData);
+                                attendanceApp.currentSessions.push(sessionData);
+                                attendanceApp.displaySession(sessionData);
                                 
                                 window.dbOnValue(attendeesRef, (snapshot) => {
                                     const attendees = snapshot.val() || {};
@@ -1220,31 +1223,31 @@
                                     sessionData.attendees = attendeeList;
                                     sessionData.attendeeCount = attendeeList.length;
                                     
-                                    app.updateSessionDisplay(sessionData);
+                                    attendanceApp.updateSessionDisplay(sessionData);
                                     
                                     if (attendeeList.length >= maxAttendees && sessionData.active) {
-                                        app.endSession(sessionData.id);
+                                        attendanceApp.endSession(sessionData.id);
                                     }
                                     
-                                    app.saveSessionToLocal(sessionData);
+                                    attendanceApp.saveSessionToLocal(sessionData);
                                 });
                                 
-                                app.showMessage('Attendance session started successfully!', 'success');
-                                app.addToSessionHistory(sessionData);
+                                attendanceApp.showMessage('Attendance session started successfully!', 'success');
+                                attendanceApp.addToSessionHistory(sessionData);
                                 document.getElementById('sessionHistoryCard').classList.remove('hidden');
                                 
                             } catch (error) {
                                 console.error('Error creating session:', error);
-                                app.showMessage('Failed to create session. Please try again.', 'danger');
+                                attendanceApp.showMessage('Failed to create session. Please try again.', 'danger');
                             }
                         } catch (error) {
                             console.error('Error:', error);
                         }
                     };
 
-                    if (useLocation && !app.classLocation && navigator.geolocation) {
+                    if (useLocation && !attendanceApp.classLocation && navigator.geolocation) {
                         navigator.geolocation.getCurrentPosition(pos => {
-                            app.classLocation = {
+                            attendanceApp.classLocation = {
                                 lat: pos.coords.latitude,
                                 lng: pos.coords.longitude,
                                 accuracy: pos.coords.accuracy
@@ -1252,7 +1255,7 @@
                             finalizeSession();
                         }, err => {
                             console.error('Location error:', err);
-                            app.showMessage('Location access denied. Session will start without location verification.', 'warning');
+                            attendanceApp.showMessage('Location access denied. Session will start without location verification.', 'warning');
                             finalizeSession();
                         }, { enableHighAccuracy: true, timeout: 10000 });
                     } else {
@@ -1303,7 +1306,7 @@
                     
                     <div class="text-center mb-4">
                         <div id="qrcode_${sessionId}"></div>
-                        <button onclick="app.openFullscreenQR('${sessionId}')" class="btn btn-secondary mt-2">
+                        <button onclick="attendanceApp.openFullscreenQR('${sessionId}')" class="btn btn-secondary mt-2">
                             <i class="fas fa-expand"></i> Fullscreen QR
                         </button>
                         <p style="color: #6b7280; margin-top: 1rem;">Students can scan this QR code to mark attendance</p>
@@ -1313,7 +1316,7 @@
                         <label><strong><i class="fas fa-link"></i> Student Access Link:</strong></label>
                         <div class="input-group">
                             <input type="text" id="sessionUrl_${sessionId}" readonly>
-                            <button type="button" class="btn btn-secondary copy-btn" onclick="app.copyToClipboard('${sessionId}')">
+                            <button type="button" class="btn btn-secondary copy-btn" onclick="attendanceApp.copyToClipboard('${sessionId}')">
                                 <i class="fas fa-copy"></i>
                             </button>
                         </div>
@@ -1330,11 +1333,11 @@
                     </div>
                     
                     <div class="flex gap-4 mt-4">
-                        <button onclick="app.exportAttendanceReport('${sessionId}')" class="btn btn-success flex-1">
+                        <button onclick="attendanceApp.exportAttendanceReport('${sessionId}')" class="btn btn-success flex-1">
                             <i class="fas fa-download"></i> Export Report
                         </button>
                         
-                        <button onclick="app.endSession('${sessionId}')" class="btn btn-danger flex-1">
+                        <button onclick="attendanceApp.endSession('${sessionId}')" class="btn btn-danger flex-1">
                             <i class="fas fa-stop-circle"></i> End Session
                         </button>
                     </div>
@@ -1613,7 +1616,7 @@
                                 <p>This attendance session has ended.</p>
                                 <p>You can export the attendance report below.</p>
 
-                                <button onclick="app.exportAttendanceReport('${sessionId}')" class="btn btn-success mt-3">
+                                <button onclick="attendanceApp.exportAttendanceReport('${sessionId}')" class="btn btn-success mt-3">
                                     <i class="fas fa-download"></i> Export Final Report
                                 </button>
                             </div>
@@ -1746,17 +1749,17 @@
                             </div>
                         </div>
                         <div class="session-actions">
-                            <button onclick="app.generateSessionQR('${session.id}')" class="btn btn-secondary" title="QR Code">
+                            <button onclick="attendanceApp.generateSessionQR('${session.id}')" class="btn btn-secondary" title="QR Code">
                                 <i class="fas fa-qrcode"></i>
                             </button>
-                            <button onclick="app.copySessionLink('${session.id}')" class="btn btn-secondary" title="Copy Link">
+                            <button onclick="attendanceApp.copySessionLink('${session.id}')" class="btn btn-secondary" title="Copy Link">
                                 <i class="fas fa-link"></i>
                             </button>
-                            <button onclick="app.downloadSessionReport('${session.id}')" class="btn btn-secondary" title="Download Report">
+                            <button onclick="attendanceApp.downloadSessionReport('${session.id}')" class="btn btn-secondary" title="Download Report">
                                 <i class="fas fa-download"></i>
                             </button>
                             ${session.active ? `
-                                <button onclick="app.endSession('${session.id}')" class="btn btn-danger" title="End Session">
+                                <button onclick="attendanceApp.endSession('${session.id}')" class="btn btn-danger" title="End Session">
                                     <i class="fas fa-stop-circle"></i>
                                 </button>
                             ` : ''}
@@ -2126,10 +2129,10 @@
         };
 
         document.addEventListener('DOMContentLoaded', function() {
-            app.init();
+            attendanceApp.init();
         });
 
-        window.app = app;
+        window.app = attendanceApp;
     </script>
 </body>
 </html>
