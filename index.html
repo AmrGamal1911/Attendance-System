@@ -1280,6 +1280,9 @@
                         try {
                             const sessionId = 'session_' + Date.now();
                             
+                            // Generate predetermined tokens
+                            const sessionTokens = this.generateSessionTokens(maxAttendees);
+                            
                             // Get TA's IP address
                             const taIpAddress = await fetch('https://api.ipify.org?format=json')
                                 .then(r => r.json())
@@ -1302,7 +1305,9 @@
                                 deviceId: app.deviceId,
                                 existingWeeks: [...app.existingWeeks],
                                 maxExistingWeek: app.maxExistingWeek,
-                                taIpAddress: taIpAddress // Store TA's IP address
+                                taIpAddress: taIpAddress,
+                                availableTokens: sessionTokens, // Add all available tokens
+                                usedTokens: {} // Track used tokens
                             };
                             
                             if (useLocation && app.classLocation) {
@@ -1378,6 +1383,10 @@
             displaySession: function(sessionData) {
                 const sessionsContainer = document.getElementById('sessionsContainer');
                 const sessionId = sessionData.id;
+                
+                // Get next available token
+                const availableToken = sessionData.availableTokens?.[0] || '';
+                const sessionFormUrl = `${window.location.origin}/form.html?session=${sessionId}&token=${availableToken}`;
                 
                 const sessionCard = document.createElement('div');
                 sessionCard.className = 'card session-card';
@@ -1526,34 +1535,27 @@
                 const allWeeks = [...(session.existingWeeks || []), currentWeek].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
                 
                 // Get token data
-                const tokensSnap = await window.dbGet(window.dbRef(window.database, `sessions/${sessionId}/tokens`));
-                const tokenMap = tokensSnap.val() || {};
+                const usedTokens = session.usedTokens || {};
                 
-                // Build token sharing notes
-                const tokenLinkNote = {};
-                Object.entries(tokenMap).forEach(([token, data]) => {
-                    if (data.flagged && data.secondStudentId) {
-                        // Only mark the second student as using a shared token
-                        const deviceMatch = data.deviceHash === data.secondDeviceHash;
-                        const deviceNote = deviceMatch ? ' (Same Device)' : ' (Different Device)';
-                        
-                        // Calculate time difference between form loads
-                        const timeDiff = Math.abs(data.formLoadTime - data.secondFormLoadTime) / 1000; // in seconds
-                        const timeDiffNote = timeDiff > 60 ? 
-                            ` [Form opened ${Math.round(timeDiff/60)} mins apart]` : 
-                            ` [Form opened ${Math.round(timeDiff)} secs apart]`;
-                        
-                        const tokenNote = `Token already used by ID: ${data.id}${deviceNote}${timeDiffNote}`;
-                        tokenLinkNote[data.secondStudentId] = tokenNote;
-                    }
-                });
-                
-                // Build IP map for duplicate detection
+                // Build IP sharing notes
                 const ipMap = {};
                 attendees.forEach(a => {
                     if (!a.ip || a.ip === session.taIpAddress) return;
                     if (!ipMap[a.ip]) ipMap[a.ip] = [];
                     ipMap[a.ip].push(a.id);
+                });
+
+                // Build token sharing notes
+                const tokenLinkNote = {};
+                Object.entries(usedTokens).forEach(([token, data]) => {
+                    // Check for IP sharing with other tokens
+                    const sameIPTokens = Object.entries(usedTokens)
+                        .filter(([t, d]) => t !== token && d.ip === data.ip)
+                        .map(([_, d]) => d.id);
+
+                    if (sameIPTokens.length > 0) {
+                        tokenLinkNote[data.id] = `Same IP with IDs: ${sameIPTokens.join(', ')}`;
+                    }
                 });
 
                 let reportData = [];
@@ -1902,24 +1904,27 @@
                 const allWeeks = [...(session.existingWeeks || []), week].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
                 
                 // Get token data
-                const tokensSnap = await window.dbGet(window.dbRef(window.database, `sessions/${sessionId}/tokens`));
-                const tokenMap = tokensSnap.val() || {};
+                const usedTokens = session.usedTokens || {};
                 
-                // Build token sharing notes
-                const tokenLinkNote = {};
-                Object.entries(tokenMap).forEach(([token, data]) => {
-                    if (data.flagged && data.secondStudentId) {
-                        tokenLinkNote[data.id] = `Token shared with ID: ${data.secondStudentId}`;
-                        tokenLinkNote[data.secondStudentId] = `Token shared with ID: ${data.id}`;
-                    }
-                });
-                
-                // Build IP map for duplicate detection
+                // Build IP sharing notes
                 const ipMap = {};
                 attendees.forEach(a => {
-                    if (!a.ip) return;
+                    if (!a.ip || a.ip === session.taIpAddress) return;
                     if (!ipMap[a.ip]) ipMap[a.ip] = [];
                     ipMap[a.ip].push(a.id);
+                });
+
+                // Build token sharing notes
+                const tokenLinkNote = {};
+                Object.entries(usedTokens).forEach(([token, data]) => {
+                    // Check for IP sharing with other tokens
+                    const sameIPTokens = Object.entries(usedTokens)
+                        .filter(([t, d]) => t !== token && d.ip === data.ip)
+                        .map(([_, d]) => d.id);
+
+                    if (sameIPTokens.length > 0) {
+                        tokenLinkNote[data.id] = `Same IP with IDs: ${sameIPTokens.join(', ')}`;
+                    }
                 });
 
                 const data = roster.map(student => {
@@ -2099,6 +2104,16 @@
                 setTimeout(() => {
                     messageDiv.classList.add('hidden');
                 }, 5000);
+            },
+
+            generateSessionTokens: function(maxAttendees) {
+                const tokens = [];
+                for (let i = 0; i < maxAttendees; i++) {
+                    const token = 'token_' + Math.random().toString(36).substring(2, 15) + 
+                                '_' + Date.now().toString(36) + '_' + i.toString();
+                    tokens.push(token);
+                }
+                return tokens;
             }
         };
 
