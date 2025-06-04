@@ -13,29 +13,29 @@
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
         import { getDatabase, ref, set, onValue, push, serverTimestamp, off, get } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
-            authDomain: "eelu-attendance.firebaseapp.com",
-            databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
-            projectId: "eelu-attendance",
-            storageBucket: "eelu-attendance.appspot.com",
-            messagingSenderId: "5132239076",
-            appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
-            measurementId: "G-D2WNX8RGRL"
-        };
+            const firebaseConfig = {
+                apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
+                authDomain: "eelu-attendance.firebaseapp.com",
+                databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
+                projectId: "eelu-attendance",
+                storageBucket: "eelu-attendance.appspot.com",
+                messagingSenderId: "5132239076",
+                appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
+                measurementId: "G-D2WNX8RGRL"
+            };
 
         const firebaseApp = initializeApp(firebaseConfig);
         const database = getDatabase(firebaseApp);
 
         // Make Firebase functions available globally
-        window.database = database;
-        window.dbRef = ref;
-        window.dbSet = set;
-        window.dbOnValue = onValue;
-        window.dbPush = push;
+            window.database = database;
+            window.dbRef = ref;
+            window.dbSet = set;
+            window.dbOnValue = onValue;
+            window.dbPush = push;
         window.dbServerTimestamp = serverTimestamp;
-        window.dbOff = off;
-        window.dbGet = get;
+            window.dbOff = off;
+            window.dbGet = get;
     </script>
     
     <style>
@@ -1382,16 +1382,19 @@
                     
                     <div class="text-center mb-4">
                         <div id="qrcode_${sessionId}"></div>
-                        <button onclick="attendanceApp.showStudentQRCodes('${sessionId}')" class="btn btn-secondary mt-2">
-                            <i class="fas fa-qrcode"></i> Show Individual QR Codes
+                        <button onclick="attendanceApp.openFullscreenQR('${sessionId}')" class="btn btn-secondary mt-2">
+                            <i class="fas fa-expand"></i> Fullscreen QR
                         </button>
-                        <p style="color: #6b7280; margin-top: 1rem;">Each student must use their own QR code to mark attendance</p>
+                        <p style="color: #6b7280; margin-top: 1rem;">Students can scan this QR code to mark attendance</p>
                     </div>
                     
                     <div class="form-group session-url">
-                        <label><strong><i class="fas fa-link"></i> Student Access Links:</strong></label>
-                        <div id="studentLinks_${sessionId}" class="student-links">
-                            <p style="color: #6b7280; text-align: center;">Click "Show Individual QR Codes" to view student links</p>
+                        <label><strong><i class="fas fa-link"></i> Student Access Link:</strong></label>
+                        <div class="input-group">
+                            <input type="text" id="sessionUrl_${sessionId}" readonly>
+                            <button type="button" class="btn btn-secondary copy-btn" onclick="attendanceApp.copyToClipboard('${sessionId}')">
+                                <i class="fas fa-copy"></i>
+                            </button>
                         </div>
                     </div>
 
@@ -1417,6 +1420,13 @@
                 `;
                 
                 sessionsContainer.appendChild(sessionCard);
+                
+                const formUrl = `${window.location.origin}/form.html?session=${sessionId}`;
+                const qr = qrcode(0, 'L');
+                qr.addData(formUrl);
+                qr.make();
+                document.getElementById(`qrcode_${sessionId}`).innerHTML = qr.createImgTag(5);
+                document.getElementById(`sessionUrl_${sessionId}`).value = formUrl;
             },
 
             showStudentQRCodes: function(sessionId) {
@@ -1452,9 +1462,9 @@
                     
                     Object.entries(tokens).forEach(([token, data]) => {
                         const formUrl = `${window.location.origin}/form.html?session=${sessionId}&token=${token}`;
-                        const qr = qrcode(0, 'L');
+                const qr = qrcode(0, 'L');
                         qr.addData(formUrl);
-                        qr.make();
+                qr.make();
                         
                         qrHtml += `
                             <div class="student-qr-item">
@@ -1728,18 +1738,17 @@
 
             endSession: async function(sessionId) {
                 try {
-                    const sessionRef = window.dbRef(window.database, `sessions/${sessionId}/active`);
-                    await window.dbSet(sessionRef, false);
+                    // Update session status in Firebase
+                    const sessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
+                    await window.dbSet(sessionRef, { 
+                        ...this.currentSessions.find(s => s.id === sessionId),
+                        active: false,
+                        endedAt: Date.now()
+                    });
+
                     this.showMessage('Session ended successfully.', 'success');
 
-                    // Update local session object
-                    const sessionIndex = this.currentSessions.findIndex(s => s.id === sessionId);
-                    if (sessionIndex !== -1) {
-                        this.currentSessions[sessionIndex].active = false;
-                        this.updateSessionHistory(this.currentSessions[sessionIndex]);
-                    }
-
-                    // Update UI in main dashboard if session card exists
+                    // Update UI
                     const sessionCard = document.getElementById(`sessionCard_${sessionId}`);
                     if (sessionCard) {
                         sessionCard.innerHTML = `
@@ -1760,10 +1769,19 @@
                         `;
                     }
 
+                    // Update session in history
+                    const history = JSON.parse(localStorage.getItem('sessionHistory') || '[]');
+                    const sessionIndex = history.findIndex(s => s.id === sessionId);
+                    if (sessionIndex !== -1) {
+                        history[sessionIndex].active = false;
+                        localStorage.setItem('sessionHistory', JSON.stringify(history));
+                        this.renderSessionHistory();
+                    }
+
                     this.clearSessionInputs();
                 } catch (error) {
                     console.error('Error ending session:', error);
-                    this.showMessage('Failed to end session.', 'danger');
+                    this.showMessage('Failed to end session. Please try again.', 'danger');
                 }
             },
 
@@ -2259,7 +2277,7 @@
                 if (newSubject) {
                     this.subjectName = newSubject;
                     this.showMessage('Subject name updated successfully!', 'success');
-                } else {
+                        } else {
                     this.showMessage('Please enter a valid subject name', 'danger');
                 }
             }
