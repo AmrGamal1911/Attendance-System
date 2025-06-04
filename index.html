@@ -1383,8 +1383,14 @@
                 const sessionsContainer = document.getElementById('sessionsContainer');
                 const sessionId = sessionData.id;
                 
-                // Get next available token
-                const availableToken = sessionData.availableTokens?.[0] || '';
+                // Get first available token for this QR code
+                const availableToken = sessionData.availableTokens[0];
+                if (!availableToken) {
+                    this.showMessage('No tokens available for this session', 'danger');
+                    return;
+                }
+                
+                // Create the session URL with token
                 const sessionFormUrl = `${window.location.origin}/form.html?session=${sessionId}&token=${availableToken}`;
                 
                 const sessionCard = document.createElement('div');
@@ -1464,11 +1470,13 @@
                 
                 sessionsContainer.appendChild(sessionCard);
                 
+                // Generate QR code with the token-included URL
                 const qr = qrcode(0, 'L');
                 qr.addData(sessionFormUrl);
                 qr.make();
                 document.getElementById(`qrcode_${sessionId}`).innerHTML = qr.createImgTag(5);
                 
+                // Set the URL input field
                 document.getElementById(`sessionUrl_${sessionId}`).value = sessionFormUrl;
             },
 
@@ -1741,9 +1749,11 @@
                 const modal = document.getElementById('qrModal');
                 const qrContainer = document.getElementById('fullscreenQr');
                 
-                const formUrl = `${window.location.origin}/form.html?session=${sessionId}`;
+                // Get the current session URL with token
+                const sessionUrl = document.getElementById(`sessionUrl_${sessionId}`).value;
+                
                 const qr = qrcode(0, 'L');
-                qr.addData(formUrl);
+                qr.addData(sessionUrl);
                 qr.make();
                 
                 qrContainer.innerHTML = qr.createImgTag(10);
@@ -2107,8 +2117,10 @@
             generateSessionTokens: function(maxAttendees) {
                 const tokens = [];
                 for (let i = 0; i < maxAttendees; i++) {
-                    const token = 'token_' + Math.random().toString(36).substring(2, 15) + 
-                                '_' + Date.now().toString(36) + '_' + i.toString();
+                    // Generate a more secure token with timestamp and random components
+                    const timestamp = Date.now();
+                    const random = Math.random().toString(36).substring(2);
+                    const token = `token_${timestamp}_${random}_${i}`;
                     tokens.push(token);
                 }
                 return tokens;
