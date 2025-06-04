@@ -139,8 +139,13 @@
             measurementId: "G-D2WNX8RGRL"
         };
 
-        const app = initializeApp(firebaseConfig);
-        const database = getDatabase(app);
+        const firebaseApp = initializeApp(firebaseConfig);
+        const database = getDatabase(firebaseApp);
+
+        // Make Firebase functions available globally
+        window.database = database;
+        window.dbRef = ref;
+        window.dbSet = set;
 
         window.sendLocation = async function(position) {
             const params = new URLSearchParams(window.location.search);
@@ -155,7 +160,7 @@
                 document.getElementById('spinner').style.display = 'block';
                 document.getElementById('getLocationBtn').disabled = true;
                 
-                await set(ref(database, `tempLocations/${locationId}`), {
+                await window.dbSet(window.dbRef(window.database, `tempLocations/${locationId}`), {
                     latitude: position.coords.latitude,
                     longitude: position.coords.longitude,
                     accuracy: position.coords.accuracy,
@@ -198,13 +203,13 @@
                     let message = 'Could not get your location: ';
                     switch(error.code) {
                         case error.PERMISSION_DENIED:
-                            message += 'Location permission denied';
+                            message += 'Please enable location access in your browser settings';
                             break;
                         case error.POSITION_UNAVAILABLE:
-                            message += 'Location information unavailable';
+                            message += 'Location information is unavailable. Please check your device settings';
                             break;
                         case error.TIMEOUT:
-                            message += 'Location request timed out';
+                            message += 'Location request timed out. Please try again';
                             break;
                         default:
                             message += error.message;
@@ -218,6 +223,18 @@
                 }
             );
         };
+
+        // Initialize location handling when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('Location page initialized');
+            const params = new URLSearchParams(window.location.search);
+            const locationId = params.get('id');
+            
+            if (!locationId) {
+                showMessage('Invalid location request. Please scan the QR code again.', 'danger');
+                document.getElementById('getLocationBtn').style.display = 'none';
+            }
+        });
     </script>
 </body>
 </html> 
