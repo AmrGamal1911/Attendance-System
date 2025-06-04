@@ -1050,6 +1050,33 @@
                 this.initVoiceCommands();
                 this.loadSessionHistory();
                 this.initializeApp();
+
+                // Clean up when page is closed
+                window.addEventListener('beforeunload', () => {
+                    this.cleanup();
+                });
+            },
+
+            cleanup: function() {
+                console.log('Cleaning up resources...');
+                // Clean up all active session listeners
+                this.currentSessions.forEach(session => {
+                    if (session.attendeesRef) {
+                        window.dbOff(session.attendeesRef);
+                    }
+                    if (session.tokensRef) {
+                        window.dbOff(session.tokensRef);
+                    }
+                    if (session.sessionRef) {
+                        window.dbOff(session.sessionRef);
+                    }
+                });
+
+                // Clean up location listener if active
+                if (this.locationRef) {
+                    window.dbOff(this.locationRef);
+                    this.locationRef = null;
+                }
             },
 
             setupDragAndDrop: function() {
@@ -1344,6 +1371,15 @@
                 const sessionsContainer = document.getElementById('sessionsContainer');
                 const sessionId = sessionData.id;
                 
+                // Clean up any existing session with the same ID
+                const existingSession = this.currentSessions.find(s => s.id === sessionId);
+                if (existingSession) {
+                    if (existingSession.attendeesRef) window.dbOff(existingSession.attendeesRef);
+                    if (existingSession.tokensRef) window.dbOff(existingSession.tokensRef);
+                    if (existingSession.sessionRef) window.dbOff(existingSession.sessionRef);
+                    this.currentSessions = this.currentSessions.filter(s => s.id !== sessionId);
+                }
+
                 const sessionCard = document.createElement('div');
                 sessionCard.className = 'card session-card';
                 sessionCard.id = `sessionCard_${sessionId}`;
@@ -1738,10 +1774,19 @@
 
             endSession: async function(sessionId) {
                 try {
+                    // Clean up listeners first
+                    const session = this.currentSessions.find(s => s.id === sessionId);
+                    if (session) {
+                        if (session.attendeesRef) window.dbOff(session.attendeesRef);
+                        if (session.tokensRef) window.dbOff(session.tokensRef);
+                        if (session.sessionRef) window.dbOff(session.sessionRef);
+                        this.currentSessions = this.currentSessions.filter(s => s.id !== sessionId);
+                    }
+
                     // Update session status in Firebase
                     const sessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
                     await window.dbSet(sessionRef, { 
-                        ...this.currentSessions.find(s => s.id === sessionId),
+                        ...session,
                         active: false,
                         endedAt: Date.now()
                     });
@@ -2229,6 +2274,11 @@
                 document.getElementById('locationQRModal').classList.remove('hidden');
                 document.getElementById('locationStatus').classList.remove('hidden');
                 
+                // Clean up any existing location listener
+                if (this.locationRef) {
+                    window.dbOff(this.locationRef);
+                }
+                
                 const locationId = 'loc_' + Date.now();
                 const baseUrl = window.location.origin;
                 const locationUrl = `${baseUrl}/location.html?id=${locationId}`;
@@ -2241,8 +2291,8 @@
                 document.getElementById('locationQRCode').innerHTML = qr.createImgTag(8);
                 
                 // Listen for location update in Firebase
-                const locationRef = window.dbRef(window.database, `tempLocations/${locationId}`);
-                window.dbOnValue(locationRef, (snapshot) => {
+                this.locationRef = window.dbRef(window.database, `tempLocations/${locationId}`);
+                window.dbOnValue(this.locationRef, (snapshot) => {
                     const locationData = snapshot.val();
                     if (locationData) {
                         this.classLocation = {
@@ -2254,8 +2304,11 @@
                         document.getElementById('locationPreview').textContent = 
                             `Location set to: ${locationData.latitude.toFixed(6)}, ${locationData.longitude.toFixed(6)} (Accuracy: ${locationData.accuracy}m)`;
                         
-                        // Clean up the temporary location data
-                        window.dbSet(locationRef, null);
+                        // Clean up the temporary location data and listener
+                        window.dbSet(this.locationRef, null).then(() => {
+                            window.dbOff(this.locationRef);
+                            this.locationRef = null;
+                        });
                         
                         this.closeLocationModal();
                         this.showMessage('Location successfully set from mobile device!', 'success');
@@ -2270,6 +2323,11 @@
             
             closeLocationModal: function() {
                 document.getElementById('locationQRModal').classList.add('hidden');
+                // Clean up location listener if modal is closed before location is set
+                if (this.locationRef) {
+                    window.dbOff(this.locationRef);
+                    this.locationRef = null;
+                }
             },
 
             updateSubjectName: function() {
