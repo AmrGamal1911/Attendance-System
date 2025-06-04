@@ -950,15 +950,35 @@
                             <span class="toggle-slider"></span>
                         </label>
                         <button type="button" id="setLocationBtn" class="btn btn-secondary location-btn">
-                            <i class="fas fa-map-marked-alt"></i> Set Location
+                            <i class="fas fa-map-marked-alt"></i> Set New Location
                         </button>
                     </label>
                     <div id="locationSettings" class="hidden">
+                        <div class="mb-4">
+                            <label for="locationName">Location Name:</label>
+                            <input type="text" id="locationName" placeholder="e.g., Room 1" class="mb-2">
+                            <select id="savedLocations" class="mb-2 full-width">
+                                <option value="">-- Select Saved Location --</option>
+                            </select>
+                        </div>
                         <label for="locationDistance">Maximum Distance (meters):</label>
-                        <input type="number" id="locationDistance" value="50" min="10">
+                        <input type="number" id="locationDistance" value="50" min="1">
                         <div id="locationPreview" style="margin-top: 0.5rem; font-size: 0.9rem; color: #6b7280;">
                             No location selected
                         </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label style="display: flex; align-items: center;">
+                        <i class="fas fa-network-wired"></i> IP Address Detection
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="blockSameIP" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </label>
+                    <div style="margin-top: 0.5rem; font-size: 0.9rem; color: #6b7280;">
+                        When enabled, students using same IP address will be noted in the report
                     </div>
                 </div>
                 
@@ -1029,108 +1049,100 @@
             existingWeeks: [],
             maxExistingWeek: 0,
             classLocation: null,
-            map: null,
-            marker: null,
-            selectedLocation: null,
-            savedLocations: JSON.parse(localStorage.getItem('savedLocations') || '{}'),
+            savedLocations: JSON.parse(localStorage.getItem('savedLocations') || '[]'),
 
             init: function() {
                 localStorage.setItem('deviceId', this.deviceId);
                 this.setupDragAndDrop();
-                this.loadSavedLocations();
+                this.setupLocationManagement();
                 
                 const locationToggle = document.getElementById('useLocation');
                 locationToggle.addEventListener('change', function() {
                     document.getElementById('locationSettings').classList.toggle('hidden', !this.checked);
                     document.getElementById('setLocationBtn').style.display = this.checked ? 'block' : 'none';
-                    document.getElementById('savedLocationsContainer').style.display = this.checked ? 'block' : 'none';
                 });
                 
                 document.getElementById('setLocationBtn').addEventListener('click', () => {
                     this.openLocationModal();
                 });
 
-                document.getElementById('locationDistance').addEventListener('input', (e) => {
-                    const value = parseInt(e.target.value);
-                    if (value <= 0) {
-                        e.target.value = 1;
-                    }
-                });
+                // Load saved locations
+                this.loadSavedLocations();
                 
                 this.initVoiceCommands();
                 this.loadSessionHistory();
                 this.initializeApp();
             },
 
+            setupLocationManagement: function() {
+                const savedLocationsSelect = document.getElementById('savedLocations');
+                savedLocationsSelect.addEventListener('change', () => {
+                    const selectedLocation = this.savedLocations.find(loc => 
+                        loc.name === savedLocationsSelect.value
+                    );
+                    if (selectedLocation) {
+                        this.classLocation = {
+                            lat: selectedLocation.latitude,
+                            lng: selectedLocation.longitude,
+                            accuracy: selectedLocation.accuracy
+                        };
+                        document.getElementById('locationName').value = selectedLocation.name;
+                        document.getElementById('locationPreview').textContent = 
+                            `Location set to: ${selectedLocation.name} (${selectedLocation.latitude.toFixed(6)}, ${selectedLocation.longitude.toFixed(6)})`;
+                    }
+                });
+            },
+
             loadSavedLocations: function() {
-                const locationSettings = document.getElementById('locationSettings');
-                const savedLocationsHtml = `
-                    <div id="savedLocationsContainer" class="form-group" style="display: none;">
-                        <label for="locationName">Location Name:</label>
-                        <input type="text" id="locationName" placeholder="e.g., Room 1">
-                        <button type="button" class="btn btn-secondary" onclick="attendanceApp.saveCurrentLocation()">
-                            <i class="fas fa-save"></i> Save Current Location
-                        </button>
-                        <div class="saved-locations-list">
-                            <label>Saved Locations:</label>
-                            <select id="savedLocationSelect" onchange="attendanceApp.loadSavedLocation()">
-                                <option value="">Select a saved location</option>
-                                ${Object.entries(this.savedLocations).map(([name, loc]) => 
-                                    `<option value="${name}">${name} (${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)})</option>`
-                                ).join('')}
-                            </select>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label style="display: flex; align-items: center; gap: 10px;">
-                            <input type="checkbox" id="blockSameIP" checked>
-                            Block submissions from same IP address
-                        </label>
-                    </div>
-                `;
-                
-                // Insert after the distance input
-                const distanceInput = locationSettings.querySelector('#locationDistance').parentElement;
-                const div = document.createElement('div');
-                div.innerHTML = savedLocationsHtml;
-                distanceInput.after(...div.children);
+                const select = document.getElementById('savedLocations');
+                select.innerHTML = '<option value="">-- Select Saved Location --</option>';
+                this.savedLocations.forEach(location => {
+                    const option = document.createElement('option');
+                    option.value = location.name;
+                    option.textContent = location.name;
+                    select.appendChild(option);
+                });
             },
 
             saveCurrentLocation: function() {
-                if (!this.classLocation) {
-                    this.showMessage('Please set a location first', 'warning');
-                    return;
-                }
-
+                if (!this.classLocation) return;
+                
                 const locationName = document.getElementById('locationName').value.trim();
                 if (!locationName) {
                     this.showMessage('Please enter a location name', 'warning');
                     return;
                 }
 
-                this.savedLocations[locationName] = this.classLocation;
-                localStorage.setItem('savedLocations', JSON.stringify(this.savedLocations));
-                
-                // Update select options
-                const select = document.getElementById('savedLocationSelect');
-                const option = document.createElement('option');
-                option.value = locationName;
-                option.text = `${locationName} (${this.classLocation.lat.toFixed(6)}, ${this.classLocation.lng.toFixed(6)})`;
-                select.add(option);
-                select.value = locationName;
+                const newLocation = {
+                    name: locationName,
+                    latitude: this.classLocation.lat,
+                    longitude: this.classLocation.lng,
+                    accuracy: this.classLocation.accuracy
+                };
 
+                // Update or add location
+                const existingIndex = this.savedLocations.findIndex(loc => loc.name === locationName);
+                if (existingIndex >= 0) {
+                    this.savedLocations[existingIndex] = newLocation;
+                } else {
+                    this.savedLocations.push(newLocation);
+                }
+
+                localStorage.setItem('savedLocations', JSON.stringify(this.savedLocations));
+                this.loadSavedLocations();
                 this.showMessage('Location saved successfully!', 'success');
             },
 
-            loadSavedLocation: function() {
-                const select = document.getElementById('savedLocationSelect');
-                const locationName = select.value;
-                
-                if (locationName && this.savedLocations[locationName]) {
-                    this.classLocation = this.savedLocations[locationName];
-                    document.getElementById('locationPreview').textContent = 
-                        `Current location: ${this.classLocation.lat.toFixed(6)}, ${this.classLocation.lng.toFixed(6)}`;
-                    this.showMessage('Saved location loaded successfully!', 'success');
+            closeLocationModal: function() {
+                document.getElementById('locationQRModal').classList.add('hidden');
+                if (this.locationRef) {
+                    window.dbOff(this.locationRef);
+                    this.locationRef = null;
+                }
+                // Save location if name is provided
+                const locationName = document.getElementById('locationName').value.trim();
+                if (locationName && this.classLocation) {
+                    this.saveCurrentLocation();
                 }
             },
 
@@ -1338,8 +1350,8 @@
                             if (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
                                 taIP = await fetch('https://api.ipify.org?format=json')
                                     .then(res => res.json())
-                                    .then(data => data.ip)
-                                    .catch(() => 'unknown');
+                                .then(data => data.ip)
+                                .catch(() => 'unknown');
                             }
 
                             // Generate one token per student
@@ -1463,7 +1475,7 @@
                     if (existingSession.sessionRef) window.dbOff(existingSession.sessionRef);
                     this.currentSessions = this.currentSessions.filter(s => s.id !== sessionId);
                 }
-
+                
                 const sessionCard = document.createElement('div');
                 sessionCard.className = 'card session-card';
                 sessionCard.id = `sessionCard_${sessionId}`;
@@ -1541,15 +1553,12 @@
                 
                 sessionsContainer.appendChild(sessionCard);
                 
-                // Generate QR code
-                const formUrl = new URL('form.html', window.location.origin);
-                formUrl.searchParams.set('session', sessionId);
+                const formUrl = `${window.location.origin}/form.html?session=${sessionId}`;
                 const qr = qrcode(0, 'L');
-                qr.addData(formUrl.toString());
+                qr.addData(formUrl);
                 qr.make();
-                
                 document.getElementById(`qrcode_${sessionId}`).innerHTML = qr.createImgTag(5);
-                document.getElementById(`sessionUrl_${sessionId}`).value = formUrl.toString();
+                document.getElementById(`sessionUrl_${sessionId}`).value = formUrl;
             },
 
             showStudentQRCodes: function(sessionId) {
@@ -1699,16 +1708,26 @@
                 const subjectName = session.subject;
                 const allWeeks = [...(session.existingWeeks || []), currentWeek].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
                 
-                // Get token data
-                const tokensSnap = await window.dbGet(window.dbRef(window.database, `sessions/${sessionId}/tokens`));
-                const tokenMap = tokensSnap.val() || {};
-
-                // Build IP map
+                // Build IP conflicts map
                 const ipMap = {};
                 attendees.forEach(a => {
-                    if (!a.ip) return;
+                    if (!a.ip || a.ip === 'unknown') return;
                     if (!ipMap[a.ip]) ipMap[a.ip] = [];
                     ipMap[a.ip].push(a);
+                });
+
+                // Generate IP conflict notes
+                const ipNotes = {};
+                Object.values(ipMap).forEach(students => {
+                    if (students.length > 1) {
+                        students.forEach(student => {
+                            const othersIds = students
+                                .filter(s => s.id !== student.id)
+                                .map(s => s.id)
+                                .join(', ');
+                            ipNotes[student.id] = `Same IP with: ${othersIds}`;
+                        });
+                    }
                 });
 
                 // Final report data
@@ -1738,16 +1757,9 @@
                             return sum + (Number(row[`Week ${week}`]) || 0);
                         }, 0);
 
-                        // Add IP sharing notes
-                        if (matched && matched.ip && ipMap[matched.ip].length > 1) {
-                            const otherStudents = ipMap[matched.ip]
-                                .filter(a => a.id !== student.id)
-                                .map(a => `${a.id} (${a.name})`)
-                                .join(', ');
-                            row['IP Sharing'] = `Same IP with: ${otherStudents}`;
-                        } else {
-                            row['IP Sharing'] = '';
-                        }
+                        // Add IP note if applicable
+                        const ipNote = ipNotes[student.id] || '';
+                        row['IP Note'] = ipNote;
                         
                         reportData.push(row);
                     });
@@ -1764,16 +1776,9 @@
                                 new Date(matched.timestamp).toLocaleString() : 'N/A'
                         };
 
-                        // Add IP sharing notes
-                        if (matched && matched.ip && ipMap[matched.ip].length > 1) {
-                            const otherStudents = ipMap[matched.ip]
-                                .filter(a => a.id !== student.id)
-                                .map(a => `${a.id} (${a.name})`)
-                                .join(', ');
-                            row['IP Sharing'] = `Same IP with: ${otherStudents}`;
-                        } else {
-                            row['IP Sharing'] = '';
-                        }
+                        // Add IP note if applicable
+                        const ipNote = ipNotes[student.id] || '';
+                        row['IP Note'] = ipNote;
                         
                         reportData.push(row);
                     });
@@ -1791,8 +1796,8 @@
                     columnOrder.push(`Timestamp Week ${week}`);
                 });
 
-                // Add IP Sharing column
-                columnOrder.push('IP Sharing');
+                // Add IP Note column
+                columnOrder.push('IP Note');
                 
                 const reorderedData = reportData.map(row => {
                     const newRow = {};
@@ -2330,12 +2335,12 @@
                 }
                 
                 const locationId = 'loc_' + Date.now();
-                const locationUrl = new URL('location.html', window.location.origin);
-                locationUrl.searchParams.set('id', locationId);
+                const baseUrl = window.location.origin;
+                const locationUrl = `${baseUrl}/location.html?id=${locationId}`;
                 
                 // Generate QR code
                 const qr = qrcode(0, 'L');
-                qr.addData(locationUrl.toString());
+                qr.addData(locationUrl);
                 qr.make();
                 
                 document.getElementById('locationQRCode').innerHTML = qr.createImgTag(8);
