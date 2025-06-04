@@ -11,28 +11,28 @@
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
         import { getDatabase, ref, onValue, push, off, set, get } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
-            authDomain: "eelu-attendance.firebaseapp.com",
-            databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
-            projectId: "eelu-attendance",
-            storageBucket: "eelu-attendance.appspot.com",
-            messagingSenderId: "5132239076",
-            appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
-            measurementId: "G-D2WNX8RGRL"
-        };
+            const firebaseConfig = {
+                apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
+                authDomain: "eelu-attendance.firebaseapp.com",
+                databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
+                projectId: "eelu-attendance",
+                storageBucket: "eelu-attendance.appspot.com",
+                messagingSenderId: "5132239076",
+                appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
+                measurementId: "G-D2WNX8RGRL"
+            };
 
         const firebaseApp = initializeApp(firebaseConfig);
         const database = getDatabase(firebaseApp);
 
         // Make Firebase functions available globally
-        window.database = database;
-        window.dbRef = ref;
-        window.dbSet = set;
-        window.dbOnValue = onValue;
-        window.dbPush = push;
-        window.dbOff = off;
-        window.dbGet = get;
+            window.database = database;
+            window.dbRef = ref;
+            window.dbSet = set;
+            window.dbOnValue = onValue;
+            window.dbPush = push;
+            window.dbOff = off;
+            window.dbGet = get;
     </script>
     
     <style>
@@ -397,13 +397,12 @@
                 try {
                     console.log('Starting form initialization...');
                     this.currentSessionId = new URLSearchParams(window.location.search).get('session');
-                    this.currentToken = new URLSearchParams(window.location.search).get('token');
                     this.deviceId = localStorage.getItem('deviceId') || crypto.randomUUID();
                     localStorage.setItem('deviceId', this.deviceId);
                     
-                    if (!this.currentSessionId || !this.currentToken) {
-                        console.error('Missing session ID or token');
-                        this.showMessage('Invalid or missing session link. Please use the link provided by your instructor.', 'danger');
+                    if (!this.currentSessionId) {
+                        console.error('No session ID provided');
+                        this.showMessage('Invalid session link. Please use the link provided by your instructor.', 'danger');
                         this.showNoSession();
                         return;
                     }
@@ -444,25 +443,6 @@
                 this.updateConnectionStatus('connecting');
                 
                 try {
-                    // First validate the token
-                    const tokenRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens/${this.currentToken}`);
-                    const tokenSnapshot = await window.dbGet(tokenRef);
-                    
-                    if (!tokenSnapshot.exists()) {
-                        console.error('Invalid token');
-                        this.showMessage('Invalid attendance link. Please use the link provided by your instructor.', 'danger');
-                        this.showNoSession();
-                        return;
-                    }
-
-                    const tokenData = tokenSnapshot.val();
-                    if (tokenData.used) {
-                        console.error('Token already used');
-                        this.showMessage('This attendance link has already been used.', 'danger');
-                        this.showNoSession();
-                        return;
-                    }
-
                     // Set up session reference
                     this.sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
                     
@@ -485,10 +465,6 @@
                         document.getElementById('submitBtn').disabled = true;
                         return;
                     }
-
-                    // Pre-fill student ID if token is valid
-                    document.getElementById('student_id').value = tokenData.id;
-                    document.getElementById('student_id').readOnly = true;
 
                     this.sessionData = sessionData;
                     this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
@@ -630,20 +606,13 @@
                     }
 
                     // Handle location check
-                    const locationResult = await this.verifyLocation();
-                    if (!locationResult.success) {
-                        this.showMessage(locationResult.message, 'danger');
-                        return;
+                    if (this.sessionData.useLocation) {
+                        const locationResult = await this.verifyLocation();
+                        if (!locationResult.success) {
+                            this.showMessage(locationResult.message, 'danger');
+                            return;
+                        }
                     }
-
-                    // Mark token as used
-                    await window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/tokens/${this.currentToken}`), {
-                        ...this.sessionData.tokens[this.currentToken],
-                        used: true,
-                        issuedToDevice: this.deviceId,
-                        issuedToIP: this.currentIP,
-                        usedAt: Date.now()
-                    });
 
                     // Record attendance
                     const attendanceData = {
@@ -652,8 +621,7 @@
                         section: student.section,
                         timestamp: Date.now(),
                         deviceId: this.deviceId,
-                        ip: this.currentIP,
-                        token: this.currentToken
+                        ip: this.currentIP
                     };
 
                     if (this.lastLocation) {
@@ -673,11 +641,6 @@
 
             verifyLocation: async function() {
                 return new Promise((resolve) => {
-                    if (!this.sessionData.useLocation) {
-                        resolve({ success: true });
-                        return;
-                    }
-
                     if (!this.sessionData.classLocation) {
                         resolve({ success: true, message: 'No location constraint set' });
                         return;
@@ -686,11 +649,30 @@
                     if (!navigator.geolocation) {
                         resolve({ 
                             success: false,
-                            message: 'Geolocation is not supported by your browser'
+                            message: 'Geolocation is not supported by your browser. Please use a modern browser with location services enabled.'
                         });
                         return;
                     }
 
+                    const handleLocationError = (error) => {
+                        console.error('Location error:', error);
+                        let message = 'Could not get your location. ';
+                        switch(error.code) {
+                            case error.PERMISSION_DENIED:
+                                message += 'Please enable location services in your browser settings.';
+                                break;
+                            case error.POSITION_UNAVAILABLE:
+                                message += 'Location information is unavailable. Please try again or check your device settings.';
+                                break;
+                            case error.TIMEOUT:
+                                message += 'Location request timed out. Please try again.';
+                                break;
+                            default:
+                                message += 'Please make sure location services are enabled.';
+                        }
+                        resolve({ success: false, message });
+                    };
+                    
                     navigator.geolocation.getCurrentPosition(
                         (position) => {
                             const studentLat = position.coords.latitude;
@@ -711,7 +693,8 @@
                                 distance: distance
                             };
 
-                            if (distance <= this.sessionData.locationDistance) {
+                            const maxDistance = this.sessionData.locationDistance || 50;
+                            if (distance <= maxDistance) {
                                 resolve({ 
                                     success: true,
                                     message: `Location verified (${distance.toFixed(0)}m from class)`
@@ -719,19 +702,13 @@
                             } else {
                                 resolve({ 
                                     success: false,
-                                    message: `Too far from class location (${distance.toFixed(0)}m away, max ${this.sessionData.locationDistance}m)`
+                                    message: `Too far from class location (${distance.toFixed(0)}m away, max ${maxDistance}m)`
                                 });
                             }
                         },
-                        (error) => {
-                            console.error('Location error:', error);
-                            resolve({ 
-                                success: false,
-                                message: 'Could not get your location. Please make sure location services are enabled.'
-                            });
-                        },
-                        {
-                            enableHighAccuracy: true,
+                        handleLocationError,
+                        { 
+                            enableHighAccuracy: true, 
                             timeout: 10000,
                             maximumAge: 0
                         }
@@ -745,12 +722,12 @@
                 const φ2 = lat2 * Math.PI/180;
                 const Δφ = (lat2-lat1) * Math.PI/180;
                 const Δλ = (lon2-lon1) * Math.PI/180;
-
+                
                 const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                        Math.cos(φ1) * Math.cos(φ2) *
-                        Math.sin(Δλ/2) * Math.sin(Δλ/2);
+                          Math.cos(φ1) * Math.cos(φ2) *
+                          Math.sin(Δλ/2) * Math.sin(Δλ/2);
                 const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
+                
                 return R * c; // Distance in meters
             },
 
