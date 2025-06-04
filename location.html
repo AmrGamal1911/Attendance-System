@@ -145,9 +145,8 @@
         window.sendLocation = async function(position) {
             const params = new URLSearchParams(window.location.search);
             const locationId = params.get('id');
-            const sessionId = params.get('session');
             
-            if (!locationId || !sessionId) {
+            if (!locationId) {
                 showMessage('Invalid location request', 'danger');
                 return;
             }
@@ -156,7 +155,7 @@
                 document.getElementById('spinner').style.display = 'block';
                 document.getElementById('getLocationBtn').disabled = true;
                 
-                await set(ref(database, `sessions/${sessionId}/tempLocation/${locationId}`), {
+                await set(ref(database, `tempLocations/${locationId}`), {
                     latitude: position.coords.latitude,
                     longitude: position.coords.longitude,
                     accuracy: position.coords.accuracy,
