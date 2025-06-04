@@ -1354,21 +1354,6 @@
                                 .catch(() => 'unknown');
                             }
 
-                            // Generate one token per student
-                            const tokenList = {};
-                            attendanceApp.rosterData.forEach(student => {
-                                const token = crypto.randomUUID();
-                                tokenList[token] = {
-                                    id: student.id,
-                                    name: student.name,
-                                    issuedToDevice: null,
-                                    issuedToIP: null,
-                                    used: false,
-                                    flagged: false,
-                                    issuedAt: Date.now()
-                                };
-                            });
-
                             const newSession = {
                                 id: sessionId,
                                 subject: attendanceApp.subjectName,
@@ -1397,19 +1382,14 @@
                                 const sessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
                                 await window.dbSet(sessionRef, newSession);
                                 
-                                // Save tokens to database
-                                await window.dbSet(window.dbRef(window.database, `sessions/${sessionId}/tokens`), tokenList);
-                                
                                 attendanceApp.saveSessionToLocal(newSession);
                                 
                                 const attendeesRef = window.dbRef(window.database, `sessions/${sessionId}/attendees`);
-                                const tokensRef = window.dbRef(window.database, `sessions/${sessionId}/tokens`);
                                 
                                 const sessionData = {
                                     ...newSession,
                                     sessionRef,
                                     attendeesRef,
-                                    tokensRef,
                                     syncStatus: 'connecting'
                                 };
                                 
@@ -2335,8 +2315,7 @@
                 }
                 
                 const locationId = 'loc_' + Date.now();
-                const baseUrl = window.location.origin;
-                const locationUrl = `${baseUrl}/location.html?id=${locationId}`;
+                const locationUrl = `location.html?id=${locationId}`;
                 
                 // Generate QR code
                 const qr = qrcode(0, 'L');
