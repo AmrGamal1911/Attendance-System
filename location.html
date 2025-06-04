@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Set Class Location | EELU</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
+        import { getDatabase, ref, set } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
+            authDomain: "eelu-attendance.firebaseapp.com",
+            databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
+            projectId: "eelu-attendance",
+            storageBucket: "eelu-attendance.appspot.com",
+            messagingSenderId: "5132239076",
+            appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
+            measurementId: "G-D2WNX8RGRL"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+
+        window.sendLocation = async function(position) {
+            const params = new URLSearchParams(window.location.search);
+            const locationId = params.get('id');
+            const sessionId = params.get('session');
+            
+            if (!locationId || !sessionId) {
+                showMessage('Invalid location request', 'danger');
+                return;
+            }
+            
+            try {
+                await set(ref(database, `sessions/${sessionId}/tempLocation/${locationId}`), {
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude,
+                    accuracy: position.coords.accuracy,
+                    timestamp: Date.now()
+                });
+                
+                showMessage('Location sent successfully! You can close this page.', 'success');
+                document.getElementById('getLocationBtn').style.display = 'none';
+            } catch (error) {
+                showMessage('Failed to send location: ' + error.message, 'danger');
+            }
+        };
+    </script>
+    
+    <style>
+        :root {
+            --primary: #667eea;
+            --success: #10b981;
+            --danger: #ef4444;
+            --dark: #1f2937;
+            --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            padding: 2rem;
+            background: #f8fafc;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .container {
+            max-width: 500px;
+            width: 100%;
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        
+        h1 {
+            text-align: center;
+            color: var(--dark);
+            margin-bottom: 2rem;
+            font-size: 1.5rem;
+        }
+        
+        .btn {
+            background: var(--gradient);
+            color: white;
+            border: none;
+            padding: 1rem;
+            border-radius: 8px;
+            width: 100%;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+        
+        .alert {
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+            font-weight: 500;
+        }
+        
+        .alert-success {
+            background: rgba(16, 185, 129, 0.1);
+            color: #047857;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+        
+        .alert-danger {
+            background: rgba(239, 68, 68, 0.1);
+            color: #b91c1c;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1><i class="fas fa-map-marker-alt"></i> Set Class Location</h1>
+        
+        <div id="message" class="alert hidden"></div>
+        
+        <button id="getLocationBtn" class="btn" onclick="getLocation()">
+            <i class="fas fa-location-arrow"></i> Get Current Location
+        </button>
+    </div>
+
+    <script>
+        function showMessage(text, type) {
+            const messageDiv = document.getElementById('message');
+            messageDiv.textContent = text;
+            messageDiv.className = `alert alert-${type}`;
+            messageDiv.classList.remove('hidden');
+        }
+
+        function getLocation() {
+            if (!navigator.geolocation) {
+                showMessage('Geolocation is not supported by your browser', 'danger');
+                return;
+            }
+
+            showMessage('Getting your location...', 'info');
+            
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    window.sendLocation(position);
+                },
+                (error) => {
+                    let message = 'Could not get your location: ';
+                    switch(error.code) {
+                        case error.PERMISSION_DENIED:
+                            message += 'Location permission denied';
+                            break;
+                        case error.POSITION_UNAVAILABLE:
+                            message += 'Location information unavailable';
+                            break;
+                        case error.TIMEOUT:
+                            message += 'Location request timed out';
+                            break;
+                        default:
+                            message += error.message;
+                    }
+                    showMessage(message, 'danger');
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 0
+                }
+            );
+        }
+    </script>
+</body>
+</html> 
