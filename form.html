@@ -394,10 +394,9 @@
 
             init: function() {
                 this.currentSessionId = new URLSearchParams(window.location.search).get('session');
-                this.currentToken = new URLSearchParams(window.location.search).get('token');
                 
-                if (!this.currentSessionId || !this.currentToken) {
-                    this.showMessage('Invalid session or token', 'danger');
+                if (!this.currentSessionId) {
+                    this.showMessage('Invalid session', 'danger');
                     this.showNoSession();
                     return;
                 }
@@ -410,34 +409,52 @@
                 });
             },
 
-            initializeSession: function() {
+            initializeSession: async function() {
                 this.updateConnectionStatus('connecting');
                 
                 try {
                     this.sessionRef = window.dbRef(window.database, `sessions/${this.currentSessionId}`);
                     this.attendeesRef = window.dbRef(window.database, `sessions/${this.currentSessionId}/attendees`);
                     
-                    window.dbOnValue(this.sessionRef, (snapshot) => {
-                        const data = snapshot.val();
-                        
-                        if (!data) {
-                            this.showNoSession();
-                            return;
-                        }
-                        
-                        this.sessionData = data;
-                        
-                        if (!this.sessionData.active) {
-                            this.showClosedSession();
-                            return;
-                        }
-                        
+                    // Get initial session data
+                    const snapshot = await window.dbGet(this.sessionRef);
+                    const data = snapshot.val();
+                    
+                    if (!data) {
+                        this.showNoSession();
+                        return;
+                    }
+                    
+                    this.sessionData = data;
+                    
+                    if (!this.sessionData.active) {
+                        this.showClosedSession();
+                        return;
+                    }
+
+                    // Request a token for this device
+                    await this.requestNewToken();
+                    
+                    // If we got a token, show the form
+                    if (this.currentToken) {
                         this.showActiveSession();
                         this.updateConnectionStatus('connected');
                         
                         if (this.sessionData.password) {
                             document.getElementById('passwordField').classList.remove('hidden');
                         }
+                    }
+
+                    // Listen for session updates
+                    window.dbOnValue(this.sessionRef, (snapshot) => {
+                        const data = snapshot.val();
+                        
+                        if (!data || !data.active) {
+                            this.showClosedSession();
+                            return;
+                        }
+                        
+                        this.sessionData = data;
                     });
                     
                     window.dbOnValue(this.attendeesRef, (snapshot) => {
@@ -447,10 +464,6 @@
                         if (this.sessionData) {
                             this.sessionData.attendees = attendeeList;
                             this.updateAttendanceCount();
-                            
-                            if (attendeeList.length >= this.sessionData.maxAttendees && this.sessionData.active) {
-                                window.dbSet(window.dbRef(window.database, `sessions/${this.currentSessionId}/active`), false);
-                            }
                         }
                     });
                     
@@ -458,6 +471,46 @@
                     console.error('Failed to initialize session:', error);
                     this.showMessage('Failed to connect to session', 'danger');
                     this.updateConnectionStatus('error');
+                }
+            },
+
+            async requestNewToken() {
+                try {
+                    // Get current session data
+                    const sessionSnap = await window.dbGet(this.sessionRef);
+                    const sessionData = sessionSnap.val();
+
+                    if (!sessionData || !sessionData.active) {
+                        this.showMessage('Session is no longer active', 'danger');
+                        this.showClosedSession();
+                        return false;
+                    }
+
+                    if (!sessionData.availableTokens || sessionData.availableTokens.length === 0) {
+                        this.showMessage('No tokens available. Session is full.', 'danger');
+                        return false;
+                    }
+
+                    // Get a token from the available pool
+                    const token = sessionData.availableTokens[0];
+                    const updatedTokens = sessionData.availableTokens.slice(1);
+
+                    // Update the available tokens atomically
+                    const updates = {
+                        [`sessions/${this.currentSessionId}/availableTokens`]: updatedTokens
+                    };
+
+                    // Perform the atomic update
+                    await window.dbSet(window.dbRef(window.database), updates);
+
+                    // Store the token
+                    this.currentToken = token;
+                    return true;
+
+                } catch (error) {
+                    console.error('Error requesting token:', error);
+                    this.showMessage('Failed to get access token. Please refresh the page.', 'danger');
+                    return false;
                 }
             },
 
