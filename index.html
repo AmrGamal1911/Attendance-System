@@ -1383,7 +1383,7 @@
                 const sessionsContainer = document.getElementById('sessionsContainer');
                 const sessionId = sessionData.id;
                 
-                // Create the session URL without token
+                // Create basic session URL without token
                 const sessionFormUrl = `${window.location.origin}/form.html?session=${sessionId}`;
                 
                 const sessionCard = document.createElement('div');
@@ -1463,7 +1463,7 @@
                 
                 sessionsContainer.appendChild(sessionCard);
                 
-                // Generate QR code with the basic URL (no token)
+                // Generate QR code with basic URL
                 const qr = qrcode(0, 'L');
                 qr.addData(sessionFormUrl);
                 qr.make();
@@ -1742,7 +1742,7 @@
                 const modal = document.getElementById('qrModal');
                 const qrContainer = document.getElementById('fullscreenQr');
                 
-                // Get the basic session URL (no token)
+                // Get the basic session URL
                 const sessionUrl = document.getElementById(`sessionUrl_${sessionId}`).value;
                 
                 const qr = qrcode(0, 'L');
