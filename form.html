@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Student attendance submission form">
     <title>Attendance Form | EELU</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
     
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
@@ -22,190 +23,53 @@
                 measurementId: "G-D2WNX8RGRL"
             };
 
-        const app = initializeApp(firebaseConfig);
-        const database = getDatabase(app);
+        const firebaseApp = initializeApp(firebaseConfig);
+        const database = getDatabase(firebaseApp);
 
-        // Get session ID from URL
-        const urlParams = new URLSearchParams(window.location.search);
-        const sessionId = urlParams.get('session');
-
-        if (!sessionId) {
-            showError('Invalid session link');
-        } else {
-            // Fetch session data
-            const sessionRef = ref(database, `sessions/${sessionId}`);
-            get(sessionRef).then((snapshot) => {
-                if (snapshot.exists()) {
-                    const session = snapshot.val();
-                    document.getElementById('subjectName').textContent = session.subject;
-                    document.getElementById('weekNumber').textContent = session.week;
-                    
-                    // Check if location verification is required
-                    if (session.location) {
-                        document.getElementById('locationVerification').style.display = 'block';
-                        getStudentLocation(session.location);
-                    }
-                } else {
-                    showError('Session not found');
-                }
-            }).catch((error) => {
-                showError('Error loading session data');
-                console.error(error);
-            });
-        }
-
-        // Calculate distance between two points using Haversine formula
-        function calculateDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371e3; // Earth's radius in meters
-            const φ1 = lat1 * Math.PI/180;
-            const φ2 = lat2 * Math.PI/180;
-            const Δφ = (lat2-lat1) * Math.PI/180;
-            const Δλ = (lon2-lon1) * Math.PI/180;
-
-            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                    Math.cos(φ1) * Math.cos(φ2) *
-                    Math.sin(Δλ/2) * Math.sin(Δλ/2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
-            return R * c; // Distance in meters
-        }
-
-        // Get student's location
-        function getStudentLocation(taLocation) {
-            if (!navigator.geolocation) {
-                showError('Geolocation is not supported by your browser');
-                return;
-            }
-
-            document.getElementById('locationSpinner').style.display = 'block';
-            document.getElementById('locationStatus').textContent = 'Getting your location...';
-
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    const { latitude, longitude } = position.coords;
-                    const distance = calculateDistance(
-                        latitude,
-                        longitude,
-                        taLocation.lat,
-                        taLocation.lng
-                    );
-
-                    // Allow 50m radius + accuracy buffer
-                    const maxDistance = 50 + (position.coords.accuracy || 0);
-                    
-                    if (distance <= maxDistance) {
-                        document.getElementById('locationStatus').innerHTML = 
-                            '<i class="fas fa-check-circle"></i> Location verified';
-                        document.getElementById('locationStatus').className = 'text-success';
-                        document.getElementById('submitBtn').disabled = false;
-                    } else {
-                        showError(`You are too far from the class location (${Math.round(distance)}m away)`);
-                    }
-                    document.getElementById('locationSpinner').style.display = 'none';
-                },
-                (error) => {
-                    let message = 'Error getting location: ';
-                    switch (error.code) {
-                        case error.PERMISSION_DENIED:
-                            message += 'Permission denied';
-                            break;
-                        case error.POSITION_UNAVAILABLE:
-                            message += 'Position unavailable';
-                            break;
-                        case error.TIMEOUT:
-                            message += 'Request timed out';
-                            break;
-                        default:
-                            message += 'Unknown error';
-                    }
-                    showError(message);
-                    document.getElementById('locationSpinner').style.display = 'none';
-                },
-                {
-                    enableHighAccuracy: true,
-                    timeout: 10000,
-                    maximumAge: 0
-                }
-            );
-        }
-
-        // Handle form submission
-        document.getElementById('attendanceForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const studentId = document.getElementById('studentId').value;
-            const sessionRef = ref(database, `sessions/${sessionId}`);
-            
-            try {
-                const snapshot = await get(sessionRef);
-                const session = snapshot.val();
-                
-                // Validate student ID against roster
-                const student = session.roster.find(s => s.id === studentId);
-                if (!student) {
-                    showError('Invalid student ID');
-                    return;
-                }
-                
-                // Check if student already attended
-                if (session.attendees && session.attendees[studentId]) {
-                    showError('You have already submitted attendance for this session');
-                    return;
-                }
-                
-                // Check max attendees limit
-                const attendeeCount = session.attendees ? Object.keys(session.attendees).length : 0;
-                if (attendeeCount >= session.maxAttendees) {
-                    showError('Session is full');
-                    return;
-                }
-                
-                // Record attendance
-                await set(ref(database, `sessions/${sessionId}/attendees/${studentId}`), {
-                    name: student.name,
-                    section: student.section,
-                    timestamp: new Date().toISOString(),
-                    ip: await fetch('https://api.ipify.org?format=json')
-                        .then(response => response.json())
-                        .then(data => data.ip)
-                });
-                
-                // Show success message
-                document.getElementById('successMessage').style.display = 'block';
-                document.getElementById('attendanceForm').style.display = 'none';
-                
-            } catch (error) {
-                showError('Error submitting attendance');
-                console.error(error);
-            }
-        });
-
-        function showError(message) {
-            const errorDiv = document.getElementById('error');
-            errorDiv.textContent = message;
-            errorDiv.style.display = 'block';
-            document.getElementById('submitBtn').disabled = true;
-        }
-
-        // Make functions available globally
-        window.showError = showError;
-        window.getStudentLocation = getStudentLocation;
+        // Make Firebase functions available globally
+            window.database = database;
+            window.dbRef = ref;
+            window.dbSet = set;
+            window.dbOnValue = onValue;
+            window.dbPush = push;
+            window.dbOff = off;
+            window.dbGet = get;
     </script>
     
     <style>
         :root {
-            --primary: #667eea;
-            --primary-dark: #5a6fd8;
-            --secondary: #764ba2;
+            --primary: #4f46e5;
+            --primary-dark: #4338ca;
+            --secondary: #7c3aed;
             --success: #10b981;
-            --warning: #f59e0b;
             --danger: #ef4444;
+            --warning: #f59e0b;
             --info: #3b82f6;
+            --light-bg: #f8fafc;
             --dark: #1f2937;
-            --light: #f8fafc;
-            --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            --border-radius: 12px;
+            --gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            --gradient-light: linear-gradient(135deg, rgba(79, 70, 229, 0.1) 0%, rgba(124, 58, 237, 0.1) 100%);
+            --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            --border-radius: 16px;
+            --border-radius-lg: 20px;
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            --font-primary: 'Poppins', 'Inter', system-ui, -apple-system, sans-serif;
+            --font-secondary: 'Inter', system-ui, -apple-system, sans-serif;
+            --text-primary: #1f2937;
+            --text-secondary: #4b5563;
+            --text-muted: #6b7280;
+            --focus-ring: 0 0 0 4px rgba(79, 70, 229, 0.2);
+        }
+        
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
         }
         
         * {
@@ -215,30 +79,40 @@
         }
         
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: var(--light);
+            font-family: var(--font-secondary);
+            background: var(--light-bg);
+            color: var(--dark);
             min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
-            padding: 1rem;
-            background-image: radial-gradient(circle at 10% 20%, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 90%);
+            padding: clamp(1rem, 5vw, 2rem);
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(79, 70, 229, 0.05) 0%, rgba(124, 58, 237, 0.05) 90%),
+                linear-gradient(to bottom right, rgba(79, 70, 229, 0.02) 0%, rgba(124, 58, 237, 0.02) 100%);
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
         
         .container {
-            max-width: 500px;
+            max-width: 550px;
             width: 100%;
-            animation: fadeIn 0.5s ease-out;
+            animation: fadeScale 0.6s ease-out;
+            margin: 0 auto;
         }
         
         .card {
             background: white;
-            border-radius: var(--border-radius);
-            padding: 2rem;
-            box-shadow: var(--shadow);
+            border-radius: var(--border-radius-lg);
+            padding: clamp(1.5rem, 5vw, 2.5rem);
+            box-shadow: var(--shadow-lg);
             border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: var(--transition);
             position: relative;
             overflow: hidden;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
         }
         
         .card::before {
@@ -249,90 +123,213 @@
             right: 0;
             height: 4px;
             background: var(--gradient);
+            animation: shimmer 2s infinite linear;
+            background-size: 1000px 100%;
         }
         
         h1 {
             color: var(--primary);
             margin-bottom: 1.5rem;
             text-align: center;
-            font-size: 1.8rem;
+            font-size: clamp(1.5rem, 4vw, 1.8rem);
+            font-family: var(--font-primary);
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 0.75rem;
+            line-height: 1.2;
+        }
+        
+        .connection-status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+            font-size: 0.95rem;
+            background: var(--gradient-light);
+            padding: 0.875rem 1.25rem;
+            border-radius: var(--border-radius);
+            transition: var(--transition);
+            border: 1px solid rgba(79, 70, 229, 0.1);
+        }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #d1d5db;
+            transition: var(--transition);
+            position: relative;
+        }
+        
+        .status-indicator::after {
+            content: '';
+            position: absolute;
+            inset: -4px;
+            border-radius: 50%;
+            background: inherit;
+            opacity: 0.3;
+            animation: pulse 2s ease-out infinite;
+        }
+        
+        .status-indicator.connected {
+            background: var(--success);
+        }
+        
+        .status-indicator.connecting {
+            background: var(--warning);
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 0.3; }
+            50% { transform: scale(1.5); opacity: 0; }
+            100% { transform: scale(1); opacity: 0; }
         }
         
         .session-info {
-            background: rgba(102, 126, 234, 0.05);
+            background: var(--gradient-light);
             border-radius: var(--border-radius);
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
-            border: 1px solid rgba(102, 126, 234, 0.1);
+            padding: 1.75rem;
+            margin-bottom: 1.75rem;
+            border: 1px solid rgba(79, 70, 229, 0.1);
+            animation: slideIn 0.5s ease-out;
+            animation-delay: 0.2s;
+            opacity: 0;
+            animation-fill-mode: forwards;
         }
         
         .session-info p {
-            margin-bottom: 0.5rem;
+            margin-bottom: 1rem;
             display: flex;
             justify-content: space-between;
+            align-items: center;
+            color: var(--text-secondary);
+        }
+        
+        .session-info p:last-child {
+            margin-bottom: 0;
         }
         
         .session-info strong {
             color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-family: var(--font-primary);
+        }
+        
+        .session-info strong i {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
         .form-group {
             margin-bottom: 1.5rem;
+            animation: slideIn 0.5s ease-out forwards;
+            opacity: 0;
         }
+        
+        .form-group:nth-child(1) { animation-delay: 0.1s; }
+        .form-group:nth-child(2) { animation-delay: 0.2s; }
         
         label {
             display: block;
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.75rem;
             font-weight: 500;
             display: flex;
             align-items: center;
-            gap: 0.5rem;
+            gap: 0.75rem;
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            font-family: var(--font-primary);
         }
         
         label i {
             color: var(--primary);
-            width: 16px;
+            width: 18px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
         input {
             width: 100%;
-            padding: 0.875rem 1rem;
-            border: 2px solid #e5e7eb;
+            padding: 1rem 1.25rem;
+            border: 2px solid rgba(79, 70, 229, 0.1);
             border-radius: var(--border-radius);
             font-size: 1rem;
-            transition: all 0.3s ease;
+            transition: var(--transition);
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            font-family: var(--font-secondary);
+            color: var(--text-primary);
+        }
+        
+        input:hover {
+            border-color: var(--primary-dark);
+            box-shadow: 0 2px 4px rgba(79, 70, 229, 0.1);
         }
         
         input:focus {
             border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            box-shadow: var(--focus-ring);
             outline: none;
+        }
+        
+        input::placeholder {
+            color: var(--text-muted);
         }
         
         .btn {
             background: var(--gradient);
             color: white;
-            padding: 1rem;
+            padding: 1rem 1.5rem;
             border-radius: var(--border-radius);
             border: none;
             cursor: pointer;
             font-size: 1rem;
-            font-weight: 500;
-            transition: all 0.3s ease;
+            font-weight: 600;
+            transition: var(--transition);
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 0.75rem;
             width: 100%;
+            position: relative;
+            overflow: hidden;
+            font-family: var(--font-primary);
+        }
+        
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transform: translateX(-100%);
+            transition: transform 0.5s ease;
         }
         
         .btn:hover {
             transform: translateY(-2px);
             box-shadow: var(--shadow);
+        }
+        
+        .btn:hover::before {
+            transform: translateX(100%);
+        }
+        
+        .btn:focus {
+            box-shadow: var(--focus-ring);
+            outline: none;
         }
         
         .btn:disabled {
@@ -341,109 +338,1370 @@
             transform: none;
         }
         
-        .text-success {
-            color: var(--success);
+        .alert {
+            padding: 1rem 1.5rem;
+            border-radius: var(--border-radius);
+            margin-bottom: 1.5rem;
+            font-weight: 500;
+            animation: slideIn 0.5s ease-out;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            border-left: 4px solid;
+            font-family: var(--font-secondary);
         }
         
-        .text-danger {
-            color: var(--danger);
+        .alert i {
+            font-size: 1.25rem;
+        }
+        
+        .alert-success {
+            background: rgba(16, 185, 129, 0.1);
+            color: #047857;
+            border-left-color: var(--success);
+        }
+        
+        .alert-danger {
+            background: rgba(239, 68, 68, 0.1);
+            color: #b91c1c;
+            border-left-color: var(--danger);
+        }
+        
+        .alert-info {
+            background: rgba(59, 130, 246, 0.1);
+            color: #1d4ed8;
+            border-left-color: var(--info);
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 3rem 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.5rem;
+            animation: fadeScale 0.5s ease-out;
+        }
+
+        .loading p {
+            color: var(--primary);
+            font-weight: 500;
+            font-family: var(--font-primary);
         }
         
         .spinner {
-            border: 3px solid rgba(102, 126, 234, 0.2);
-            border-top: 3px solid var(--primary);
+            width: 50px;
+            height: 50px;
             border-radius: 50%;
-            width: 20px;
-            height: 20px;
-            animation: spin 1s linear infinite;
-            display: inline-block;
-            vertical-align: middle;
-            margin-right: 0.5rem;
+            position: relative;
+            animation: rotate 1s linear infinite;
+        }
+
+        .spinner::before {
+            content: "";
+            box-sizing: border-box;
+            position: absolute;
+            inset: 0px;
+            border-radius: 50%;
+            border: 3px solid var(--primary);
+            animation: prixClipFix 2s linear infinite;
         }
         
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
+        @keyframes rotate {
             100% { transform: rotate(360deg); }
         }
         
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
+        @keyframes prixClipFix {
+            0% { clip-path: polygon(50% 50%, 0 0, 0 0, 0 0, 0 0, 0 0); }
+            25% { clip-path: polygon(50% 50%, 0 0, 100% 0, 100% 0, 100% 0, 100% 0); }
+            50% { clip-path: polygon(50% 50%, 0 0, 100% 0, 100% 100%, 100% 100%, 100% 100%); }
+            75% { clip-path: polygon(50% 50%, 0 0, 100% 0, 100% 100%, 0 100%, 0 100%); }
+            100% { clip-path: polygon(50% 50%, 0 0, 100% 0, 100% 100%, 0 100%, 0 0); }
         }
         
-        #error {
-            background: rgba(239, 68, 68, 0.1);
-            color: var(--danger);
-            padding: 1rem;
-            border-radius: var(--border-radius);
-            margin-bottom: 1rem;
-            display: none;
-            animation: fadeIn 0.3s ease-out;
-        }
-        
-        #successMessage {
+        .completion-message {
             text-align: center;
-            display: none;
-            animation: fadeIn 0.3s ease-out;
+            padding: 2rem;
+            animation: fadeScale 0.5s ease-out;
         }
-        
-        #successMessage i {
+
+        .completion-message i {
             font-size: 4rem;
             color: var(--success);
+            margin-bottom: 1.5rem;
+            animation: bounceIn 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+
+        .completion-message h3 {
+            color: var(--success);
             margin-bottom: 1rem;
+            font-size: 1.5rem;
+            animation: slideIn 0.5s ease-out;
+            animation-delay: 0.2s;
+                opacity: 0;
+            animation-fill-mode: forwards;
+            font-family: var(--font-primary);
+        }
+
+        .completion-message p {
+            color: var(--text-secondary);
+            animation: slideIn 0.5s ease-out;
+            animation-delay: 0.3s;
+            opacity: 0;
+            animation-fill-mode: forwards;
+        }
+
+        @keyframes bounceIn {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.2); }
+            70% { transform: scale(0.9); }
+            100% { transform: scale(1); }
+        }
+        
+        .closed-message {
+            text-align: center;
+            padding: 3rem 2rem;
+            animation: fadeScale 0.6s ease-out;
+        }
+        
+        .closed-message i {
+            font-size: 4rem;
+            color: var(--danger);
+            margin-bottom: 1.5rem;
+            animation: shake 0.8s cubic-bezier(.36,.07,.19,.97) both;
+        }
+
+        .closed-message h1 {
+            color: var(--danger);
+            margin-bottom: 1rem;
+            animation: slideIn 0.5s ease-out;
+            animation-delay: 0.2s;
+            opacity: 0;
+            animation-fill-mode: forwards;
+        }
+
+        .closed-message p {
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+            animation: slideIn 0.5s ease-out;
+            animation-delay: 0.3s;
+            opacity: 0;
+            animation-fill-mode: forwards;
+        }
+        
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+
+        @keyframes fadeScale {
+            from {
+                opacity: 0;
+                transform: scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes shimmer {
+            0% { background-position: -1000px 0; }
+            100% { background-position: 1000px 0; }
+        }
+        
+        @media (max-width: 480px) {
+            .card {
+                padding: 1.75rem;
+                margin: 1rem;
+            }
+            
+            h1 {
+                font-size: 1.5rem;
+            }
+
+            .completion-message i,
+            .closed-message i {
+                font-size: 3rem;
+        }
+
+            .session-info {
+                padding: 1.25rem;
+            }
+
+            .btn {
+                padding: 0.875rem 1.25rem;
+            }
+            
+            input {
+                padding: 0.875rem 1rem;
+            }
+        }
+
+        /* Add button shake animation for negative feedback */
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+
+        /* Add button nod animation for positive feedback */
+        @keyframes nod {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+
+        .shake {
+            animation: shake 0.82s cubic-bezier(.36,.07,.19,.97) both;
+        }
+
+        .nod {
+            animation: nod 0.5s ease-in-out;
+        }
+
+        /* Add loading screen styles */
+        .loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #f0f2f5;
+            z-index: 9999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.5s ease;
+        }
+
+        .loading-container {
+            width: 100%;
+            max-width: 700px;
+            text-align: center;
+            position: relative;
+        }
+
+        .logo-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0 auto;
+            gap: 30px;
+        }
+
+        .icon {
+            font-size: 28px;
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: opacity 0.5s ease, transform 0.5s ease;
+        }
+
+        .letter-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .letter {
+            font-size: 60px;
+            font-weight: bold;
+            color: #2c3e50;
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: opacity 0.5s ease, transform 0.5s ease;
+        }
+
+        .underline {
+            width: 50px;
+            height: 4px;
+            background-color: #e74c3c;
+            margin-top: 5px;
+            transform: scaleX(0);
+            transform-origin: center;
+            transition: transform 0.5s ease;
+        }
+
+        /* Toast notification styles */
+        .toast {
+            position: fixed;
+            top: 2rem;
+            right: 2rem;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            background: white;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            transform: translateX(150%);
+            transition: transform 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            z-index: 1000;
+        }
+
+        .toast.show {
+            transform: translateX(0);
+        }
+
+        .toast i {
+            font-size: 1.5rem;
+        }
+
+        .toast.success {
+            border-left: 4px solid var(--success);
+        }
+
+        .toast.success i {
+            color: var(--success);
+        }
+
+        .toast.error {
+            border-left: 4px solid var(--danger);
+        }
+
+        .toast.error i {
+            color: var(--danger);
+        }
+
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        .shake {
+            animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+        }
+
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+
+        /* Button success and error states */
+        .btn.success {
+            background: var(--success);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.1);
+        }
+
+        .btn.error {
+            background: var(--danger);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.1);
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="card">
-            <h1><i class="fas fa-user-check"></i> Student Attendance</h1>
-            
-            <div class="session-info">
-                <p>
-                    <span><i class="fas fa-book"></i> Subject:</span>
-                    <strong id="subjectName">Loading...</strong>
-                </p>
-                <p>
-                    <span><i class="fas fa-calendar-week"></i> Week:</span>
-                    <strong id="weekNumber">Loading...</strong>
-                </p>
-            </div>
-            
-            <div id="error" style="display: none;"></div>
-            
-            <form id="attendanceForm">
-                <div class="form-group">
-                    <label>
-                        <i class="fas fa-id-card"></i> Student ID
-                    </label>
-                    <input type="text" id="studentId" required pattern="[0-9]+" 
-                           title="Please enter your numeric student ID">
+    <div id="loadingScreen" class="loading-screen">
+        <div class="loading-container">
+            <div class="logo-container">
+                <!-- Book icon -->
+                <div class="icon" id="icon1">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" fill="#FFD700"></path>
+                        <line x1="8" y1="6" x2="16" y2="6" stroke="#333"></line>
+                        <line x1="8" y1="10" x2="16" y2="10" stroke="#333"></line>
+                        <line x1="8" y1="14" x2="12" y2="14" stroke="#333"></line>
+                    </svg>
                 </div>
-                
-                <div id="locationVerification" style="display: none;">
-                    <div class="form-group">
-                        <label>
-                            <i class="fas fa-map-marker-alt"></i> Location Status
-                        </label>
-                        <div>
-                            <span id="locationSpinner" class="spinner"></span>
-                            <span id="locationStatus">Waiting for verification...</span>
-                        </div>
-                    </div>
-                    </div>
-                    
-                <button type="submit" id="submitBtn" class="btn" disabled>
-                        <i class="fas fa-check-circle"></i> Submit Attendance
-                    </button>
-                </form>
-            
-            <div id="successMessage">
-                <i class="fas fa-check-circle"></i>
-                <h2>Attendance Recorded!</h2>
-                <p>Your attendance has been successfully recorded.</p>
+
+                <!-- Pen/Writing icon -->
+                <div class="icon" id="icon2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
+                        <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+                        <path d="M2 2l7.586 7.586"></path>
+                        <circle cx="11" cy="11" r="2"></circle>
+                    </svg>
+                </div>
+
+                <!-- Letter E -->
+                <div class="letter-container">
+                    <div class="letter" id="letter1">E</div>
+                    <div class="underline" id="underline1"></div>
+                </div>
+
+                <!-- Letter E -->
+                <div class="letter-container">
+                    <div class="letter" id="letter2">E</div>
+                    <div class="underline" id="underline2"></div>
+                </div>
+
+                <!-- Graduation cap icon -->
+                <div class="icon" id="icon3">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z" fill="#555"></path>
+                        <path d="M2 7v5"></path>
+                        <path d="M16 10.87v4.63"></path>
+                        <path d="M12 12l8.5 4.5-8.5 4.5L3.5 16.5 12 12"></path>
+                        <path d="M12 21v-9"></path>
+                    </svg>
+                </div>
+
+                <!-- Letter L -->
+                <div class="letter-container">
+                    <div class="letter" id="letter3">L</div>
+                    <div class="underline" id="underline3"></div>
+                </div>
+
+                <!-- Letter U -->
+                <div class="letter-container">
+                    <div class="letter" id="letter4">U</div>
+                    <div class="underline" id="underline4"></div>
+                </div>
+
+                <!-- Document icon -->
+                <div class="icon" id="icon4">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="#f5f5f5"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                        <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                </div>
+
+                <!-- Laptop icon -->
+                <div class="icon" id="icon5">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                        <line x1="2" y1="20" x2="22" y2="20"></line>
+                    </svg>
+                </div>
             </div>
         </div>
     </div>
+
+    <div class="container" role="main">
+        <div class="card">
+            <div id="loadingScreen" class="loading-screen">
+                <div class="loading-container">
+                    <div class="logo-container">
+                        <!-- Book icon -->
+                        <div class="icon" id="icon1">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" fill="#FFD700"></path>
+                                <line x1="8" y1="6" x2="16" y2="6" stroke="#333"></line>
+                                <line x1="8" y1="10" x2="16" y2="10" stroke="#333"></line>
+                                <line x1="8" y1="14" x2="12" y2="14" stroke="#333"></line>
+                            </svg>
+                        </div>
+
+                        <!-- Pen/Writing icon -->
+                        <div class="icon" id="icon2">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
+                                <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+                                <path d="M2 2l7.586 7.586"></path>
+                                <circle cx="11" cy="11" r="2"></circle>
+                            </svg>
+                        </div>
+
+                        <!-- Letter E -->
+                        <div class="letter-container">
+                            <div class="letter" id="letter1">E</div>
+                            <div class="underline" id="underline1"></div>
+                        </div>
+
+                        <!-- Letter E -->
+                        <div class="letter-container">
+                            <div class="letter" id="letter2">E</div>
+                            <div class="underline" id="underline2"></div>
+                        </div>
+
+                        <!-- Graduation cap icon -->
+                        <div class="icon" id="icon3">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 2L2 7l10 5 10-5-10-5z" fill="#555"></path>
+                                <path d="M2 7v5"></path>
+                                <path d="M16 10.87v4.63"></path>
+                                <path d="M12 12l8.5 4.5-8.5 4.5L3.5 16.5 12 12"></path>
+                                <path d="M12 21v-9"></path>
+                            </svg>
+                        </div>
+
+                        <!-- Letter L -->
+                        <div class="letter-container">
+                            <div class="letter" id="letter3">L</div>
+                            <div class="underline" id="underline3"></div>
+                        </div>
+
+                        <!-- Letter U -->
+                        <div class="letter-container">
+                            <div class="letter" id="letter4">U</div>
+                            <div class="underline" id="underline4"></div>
+                        </div>
+
+                        <!-- Document icon -->
+                        <div class="icon" id="icon4">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="#f5f5f5"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <line x1="16" y1="13" x2="8" y2="13"></line>
+                                <line x1="16" y1="17" x2="8" y2="17"></line>
+                                <polyline points="10 9 9 9 8 9"></polyline>
+                            </svg>
+                        </div>
+
+                        <!-- Laptop icon -->
+                        <div class="icon" id="icon5">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                                <line x1="2" y1="20" x2="22" y2="20"></line>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="activeSession" class="hidden">
+                <h1><i class="fas fa-user-check" aria-hidden="true"></i> Attendance Form</h1>
+                
+                <div class="connection-status" role="status" aria-live="polite">
+                    <div class="status-indicator" id="connectionIndicator" aria-hidden="true"></div>
+                    <span id="connectionStatus">Connecting...</span>
+                </div>
+                
+                <div class="session-info" role="region" aria-label="Session Information">
+                    <p><strong><i class="fas fa-book" aria-hidden="true"></i> Subject:</strong> <span id="displaySubject">-</span></p>
+                    <p><strong><i class="fas fa-calendar-week" aria-hidden="true"></i> Week:</strong> <span id="displayWeek">-</span></p>
+                    <div id="attendanceInfo" class="hidden">
+                        <p><strong><i class="fas fa-users" aria-hidden="true"></i> Attendance:</strong> <span id="attendedCount">0</span>/<span id="maxAttendees">-</span></p>
+                    </div>
+                </div>
+                
+                <div id="message" class="alert hidden" role="alert" aria-live="assertive"></div>
+                
+                <form id="attendanceForm" aria-label="Attendance submission form">
+                    <div class="form-group">
+                        <label for="student_id"><i class="fas fa-id-card" aria-hidden="true"></i> Student ID</label>
+                        <input type="text" id="student_id" name="student_id" placeholder="Enter your university ID" required 
+                               aria-required="true" autocomplete="off" pattern="[0-9]*" inputmode="numeric">
+                    </div>
+                    
+                    <div id="passwordField" class="form-group hidden">
+                        <label for="password"><i class="fas fa-lock" aria-hidden="true"></i> Session Password</label>
+                        <input type="password" id="password" name="password" placeholder="Enter session password" 
+                               aria-required="true" autocomplete="current-password">
+                    </div>
+                    
+                    <div id="locationStatus" class="alert hidden" role="alert" aria-live="polite"></div>
+                    
+                    <button type="submit" class="btn" id="submitBtn" aria-label="Submit attendance">
+                        <i class="fas fa-check-circle" aria-hidden="true"></i> Submit Attendance
+                    </button>
+                </form>
+            </div>
+            
+            <div id="closedSession" class="hidden closed-message" role="alert">
+                <i class="fas fa-calendar-times" aria-hidden="true"></i>
+                <h1>Session Closed</h1>
+                <p>This attendance session is no longer active.</p>
+                <p>Please contact your instructor for assistance.</p>
+            </div>
+            
+            <div id="noSession" class="hidden closed-message" role="alert">
+                <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+                <h1>No Session Found</h1>
+                <p>The attendance session could not be found.</p>
+                <p>Please check the link or contact your instructor.</p>
+            </div>
+            
+            <div id="sessionFull" class="hidden closed-message" role="alert">
+                <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+                <h1>Session Full</h1>
+                <p>This session is full.</p>
+                <p>Please contact your instructor for assistance.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast" class="toast">
+        <i class="fas"></i>
+        <div class="toast-content">
+            <strong></strong>
+            <p></p>
+        </div>
+    </div>
+
+    <script>
+        const formApp = {
+            currentSessionId: null,
+            sessionData: null,
+            sessionRef: null,
+            attendeesRef: null,
+            lastLocation: null,
+            locationAttempts: 0,
+            maxLocationAttempts: 3,
+            deviceId: localStorage.getItem('deviceId') || Date.now().toString(),
+            currentIP: null,
+
+            init: async function() {
+                console.log('Initializing form...');
+                
+                const urlParams = new URLSearchParams(window.location.search);
+                const sessionId = urlParams.get('session');
+                
+                if (!sessionId) {
+                    this.showNoSession();
+                    return;
+                }
+
+                this.sessionId = sessionId;
+                this.updateConnectionStatus('connecting');
+                
+                try {
+                    // First check if session exists and is active
+                    console.log('Fetching session data...');
+                    const sessionSnapshot = await window.dbGet(window.dbRef(window.database, `sessions/${sessionId}`));
+                    const sessionData = sessionSnapshot.val();
+                    
+                    if (!sessionData) {
+                    this.showNoSession();
+                    return;
+                }
+
+                    if (!sessionData.active) {
+                        this.showClosedSession();
+                        return;
+                    }
+
+                    // Get current IP first
+                    try {
+                        const ipResponse = await fetch('https://api.ipify.org?format=json');
+                        const ipData = await ipResponse.json();
+                        this.currentIP = ipData.ip;
+                    } catch (error) {
+                        console.warn('Could not get IP:', error);
+                        this.currentIP = 'unknown';
+                    }
+                    
+                    this.sessionData = sessionData;
+
+                    // Check if max attendees reached
+                    const currentAttendees = Object.values(sessionData.attendees || {}).length;
+                    if (currentAttendees >= sessionData.maxAttendees) {
+                        this.showSessionFull();
+                        return;
+                    }
+                    
+                    // Set up real-time listener for session status and attendance count
+                    const sessionRef = window.dbRef(window.database, `sessions/${sessionId}`);
+                    window.dbOnValue(sessionRef, (snapshot) => {
+                        const data = snapshot.val();
+                        if (!data || !data.active) {
+                            this.showClosedSession();
+                            return;
+                        }
+
+                        // Check max attendees in real-time
+                        const attendeeCount = Object.values(data.attendees || {}).length;
+                        if (attendeeCount >= data.maxAttendees) {
+                            this.showSessionFull();
+                            return;
+                        }
+
+                        this.sessionData = data;
+                    });
+
+                    // Set up Firebase references
+                    this.sessionRef = sessionRef;
+                    this.attendeesRef = window.dbRef(window.database, `sessions/${sessionId}/attendees`);
+
+                    // Update session info display
+                    document.getElementById('displaySubject').textContent = this.sessionData.subject;
+                    document.getElementById('displayWeek').textContent = this.sessionData.week;
+                    
+                    // Show password field if required (except for TA)
+                    if (this.sessionData.password && this.currentIP !== this.sessionData.taIP) {
+                        document.getElementById('passwordField').classList.remove('hidden');
+                    }
+
+                    // If using location verification and not TA's IP
+                    if (this.sessionData.useLocation && this.currentIP !== this.sessionData.taIP) {
+                        console.log('Location verification required - starting location check');
+                        await this.startLocationCheck();
+                    } else {
+                        console.log('No location verification required or TA device - enabling submit button');
+                        document.getElementById('submitBtn').disabled = false;
+                        // For TA, show success status
+                        if (this.currentIP === this.sessionData.taIP) {
+                            this.showLocationStatus(true, 'Location verified (TA device)');
+                        }
+                    }
+
+                    // Show active session UI
+                    document.getElementById('loadingScreen').classList.add('hidden');
+                    document.getElementById('activeSession').classList.remove('hidden');
+                    
+                    // Update connection status
+                    this.updateConnectionStatus('connected');
+
+                } catch (error) {
+                    console.error('Session initialization error:', error);
+                    this.handleInitializationError(error);
+                }
+            },
+
+            cleanup: function() {
+                console.log('Cleaning up form resources...');
+                // Clean up Firebase listeners
+                if (this.sessionRef) {
+                    window.dbOff(this.sessionRef);
+                    this.sessionRef = null;
+                }
+                if (this.attendeesRef) {
+                    window.dbOff(this.attendeesRef);
+                    this.attendeesRef = null;
+                }
+                
+                // Reset state
+                this.sessionData = null;
+                this.currentIP = null;
+                this.lastLocation = null;
+                
+                // Reset UI
+                document.getElementById('submitBtn').disabled = true;
+                document.getElementById('student_id').value = '';
+                document.getElementById('password').value = '';
+                document.getElementById('passwordField').classList.add('hidden');
+            },
+
+            setupRealtimeListeners: function() {
+                console.log('Setting up real-time listeners...');
+                
+                // Listen for session updates
+                window.dbOnValue(this.sessionRef, (snapshot) => {
+                    const sessionData = snapshot.val();
+                    console.log('Received session update:', sessionData ? 'active' : 'inactive');
+                    
+                    if (!sessionData || !sessionData.active) {
+                        this.showMessage('This session has ended', 'info');
+                        document.getElementById('submitBtn').disabled = true;
+                        return;
+                    }
+                    
+                        this.sessionData = sessionData;
+                }, (error) => {
+                    console.error('Session listener error:', error);
+                    this.showMessage('Error updating session status', 'warning');
+                });
+                
+                // Listen for attendees updates
+                window.dbOnValue(this.attendeesRef, (snapshot) => {
+                    if (!this.sessionData) return;
+                    
+                    const attendees = snapshot.val() || {};
+                    const attendeeList = Object.values(attendees);
+                    console.log('Received attendees update:', {
+                        count: attendeeList.length,
+                        maxAttendees: this.sessionData.maxAttendees,
+                        isFull: attendeeList.length >= this.sessionData.maxAttendees
+                    });
+                    
+                        this.sessionData.attendees = attendeeList;
+                        this.updateAttendanceCount();
+                    
+                    // Update attendance display
+                    document.getElementById('attendedCount').textContent = attendeeList.length;
+                    
+                    // Check if session is full
+                    if (attendeeList.length >= this.sessionData.maxAttendees) {
+                        document.getElementById('submitBtn').disabled = true;
+                        this.showMessage('This session is full', 'info');
+                    }
+                    
+                    // Update session history in parent window if it exists
+                    try {
+                        if (window.opener && !window.opener.closed) {
+                            window.opener.postMessage({
+                                type: 'attendanceUpdate',
+                                sessionId: this.sessionId,
+                                attendees: attendeeList
+                            }, window.location.origin);
+                        }
+                } catch (error) {
+                        console.warn('Could not update parent window:', error);
+                    }
+                }, (error) => {
+                    console.error('Attendees listener error:', error);
+                    this.showMessage('Error updating attendance list', 'warning');
+                });
+                
+                console.log('Real-time listeners setup complete');
+            },
+
+            handleInitializationError: function(error) {
+                if (error.message.includes('not found') || 
+                    error.message.includes('does not exist') || 
+                    error.message.includes('Invalid session')) {
+                    this.showNoSession();
+                } else if (error.message.includes('Firebase') || error.message.includes('connection')) {
+                    this.showMessage('Connection error: ' + error.message, 'danger');
+                    this.updateConnectionStatus('error');
+                } else {
+                    this.showMessage('Error: ' + error.message, 'danger');
+                    this.updateConnectionStatus('error');
+                }
+            },
+
+            showActiveSession: function() {
+                console.log('Showing active session UI');
+                document.getElementById('loadingScreen').classList.add('hidden');
+                document.getElementById('activeSession').classList.remove('hidden');
+                document.getElementById('closedSession').classList.add('hidden');
+                document.getElementById('noSession').classList.add('hidden');
+                
+                if (this.sessionData) {
+                    console.log('Updating session display:', {
+                        subject: this.sessionData.subject,
+                        week: this.sessionData.week,
+                        maxAttendees: this.sessionData.maxAttendees
+                    });
+                    this.updateSessionDisplay();
+                }
+            },
+
+            showClosedSession: function() {
+                document.getElementById('loadingScreen').classList.add('hidden');
+                document.getElementById('activeSession').classList.add('hidden');
+                document.getElementById('closedSession').classList.remove('hidden');
+                document.getElementById('noSession').classList.add('hidden');
+                this.updateConnectionStatus('offline');
+                this.cleanup();
+            },
+
+            showNoSession: function() {
+                document.getElementById('loadingScreen').classList.add('hidden');
+                document.getElementById('activeSession').classList.add('hidden');
+                document.getElementById('closedSession').classList.add('hidden');
+                document.getElementById('noSession').classList.remove('hidden');
+                this.updateConnectionStatus('offline');
+                this.cleanup();
+            },
+
+            showSessionFull: function() {
+                document.getElementById('loadingScreen').classList.add('hidden');
+                document.getElementById('activeSession').classList.add('hidden');
+                document.getElementById('closedSession').classList.add('hidden');
+                document.getElementById('noSession').classList.add('hidden');
+                document.getElementById('sessionFull').classList.remove('hidden');
+                this.updateConnectionStatus('offline');
+                this.cleanup();
+            },
+
+            updateAttendanceCount: function() {
+                if (this.sessionData && this.sessionData.attendees) {
+                    const attendedCount = this.sessionData.attendees.length;
+                    document.getElementById('attendedCount').textContent = attendedCount;
+                    
+                    if (attendedCount >= this.sessionData.maxAttendees) {
+                        document.getElementById('submitBtn').disabled = true;
+                        this.showMessage('This session is full', 'info');
+                    } else {
+                        document.getElementById('submitBtn').disabled = false;
+                    }
+                } else {
+                    document.getElementById('attendedCount').textContent = '0';
+                }
+            },
+
+            verifyLocation: async function() {
+                return new Promise((resolve) => {
+                    // Check if it's TA's IP
+                    if (this.currentIP === this.sessionData.taIP) {
+                        console.log('TA IP match confirmed - enabling submit button');
+                        document.getElementById('submitBtn').disabled = false;
+                        resolve({
+                            success: true,
+                            message: 'Location verified (TA device)',
+                            locationData: {
+                                coordinates: this.sessionData.classLocation,
+                                accuracy: 0,
+                                timestamp: new Date().toISOString(),
+                                distance: 0
+                            }
+                        });
+                    return;
+                }
+
+                    if (!navigator.geolocation) {
+                        document.getElementById('submitBtn').disabled = true;
+                        this.showLocationStatus(false, 'Your browser does not support location services');
+                        resolve({ 
+                            success: false,
+                            message: 'Your browser does not support location services',
+                            locationData: null
+                        });
+                    return;
+                }
+
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            const studentLat = position.coords.latitude;
+                            const studentLng = position.coords.longitude;
+                            const classLat = this.sessionData.classLocation.lat;
+                            const classLng = this.sessionData.classLocation.lng;
+                            
+                            const distance = this.calculateDistance(
+                                studentLat, studentLng,
+                                classLat, classLng
+                            );
+
+                            const maxDistance = this.sessionData.locationDistance || 50;
+                            const isWithinRange = distance <= maxDistance;
+                            
+                            // Update submit button state
+                            const submitBtn = document.getElementById('submitBtn');
+                            submitBtn.disabled = !isWithinRange;
+
+                            // Show location status
+                            this.showLocationStatus(
+                                isWithinRange,
+                                isWithinRange ? 
+                                    `Valid location (${Math.round(distance)}m from room)` :
+                                    `Invalid location (${Math.round(distance)}m from room)`,
+                                distance,
+                                maxDistance
+                            );
+
+                            resolve({
+                                success: isWithinRange,
+                                message: isWithinRange ? 
+                                    `Valid location (${Math.round(distance)}m from room)` :
+                                    `Invalid location (${Math.round(distance)}m from room)`,
+                                locationData: {
+                                    coordinates: {
+                                        latitude: studentLat,
+                                        longitude: studentLng
+                                    },
+                                    accuracy: position.coords.accuracy,
+                                    timestamp: new Date().toISOString(),
+                                    distance: Math.round(distance)
+                                }
+                            });
+                        },
+                        (error) => {
+                            console.error('Location error:', error);
+                            document.getElementById('submitBtn').disabled = true;
+                            this.showLocationStatus(false, this.getLocationErrorMessage(error));
+                            resolve({ 
+                                success: false,
+                                message: this.getLocationErrorMessage(error),
+                                locationData: null
+                            });
+                        },
+                        { 
+                            enableHighAccuracy: true, 
+                            timeout: 10000,
+                            maximumAge: 0
+                        }
+                    );
+                });
+            },
+
+            calculateDistance: function(lat1, lon1, lat2, lon2) {
+                const R = 6371e3; // Earth's radius in meters
+                const φ1 = lat1 * Math.PI/180;
+                const φ2 = lat2 * Math.PI/180;
+                const Δφ = (lat2-lat1) * Math.PI/180;
+                const Δλ = (lon2-lon1) * Math.PI/180;
+                
+                const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                          Math.cos(φ1) * Math.cos(φ2) *
+                          Math.sin(Δλ/2) * Math.sin(Δλ/2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                
+                return R * c; // Distance in meters
+            },
+
+            showMessage: function(text, type) {
+                const messageDiv = document.getElementById('message');
+                const icon = type === 'success' ? 'check-circle' : 
+                            type === 'danger' ? 'exclamation-circle' : 
+                            'info-circle';
+                
+                messageDiv.innerHTML = `
+                    <i class="fas fa-${icon}"></i>
+                    <span>${text}</span>
+                `;
+                messageDiv.className = `alert alert-${type}`;
+                messageDiv.classList.remove('hidden');
+                
+                // Add button animation based on message type
+                const submitBtn = document.getElementById('submitBtn');
+                if (type === 'success') {
+                    submitBtn.classList.add('nod');
+                    setTimeout(() => submitBtn.classList.remove('nod'), 500);
+                } else if (type === 'danger') {
+                    submitBtn.classList.add('shake');
+                    setTimeout(() => submitBtn.classList.remove('shake'), 820);
+                }
+                
+                setTimeout(() => {
+                    messageDiv.classList.add('hidden');
+                }, 5000);
+            },
+
+            updateConnectionStatus: function(status) {
+                const indicator = document.getElementById('connectionIndicator');
+                const statusText = document.getElementById('connectionStatus');
+                
+                indicator.className = 'status-indicator';
+                switch(status) {
+                    case 'connecting':
+                        indicator.classList.add('connecting');
+                        statusText.textContent = 'Connecting...';
+                        break;
+                    case 'connected':
+                        indicator.classList.add('connected');
+                        statusText.textContent = 'Connected';
+                        break;
+                    case 'error':
+                        statusText.textContent = 'Connection Error';
+                        break;
+                }
+            },
+
+            updateSessionDisplay: function() {
+                if (this.sessionData) {
+                    document.getElementById('displaySubject').textContent = this.sessionData.subject || '-';
+                    document.getElementById('displayWeek').textContent = this.sessionData.week || '-';
+                    document.getElementById('maxAttendees').textContent = this.sessionData.maxAttendees || '-';
+                    this.updateAttendanceCount();
+                }
+            },
+
+            startLocationCheck: async function() {
+                console.log('Starting location verification process');
+                if (!this.sessionData.useLocation) {
+                    console.log('Location verification not required');
+                    document.getElementById('submitBtn').disabled = false;
+                        return;
+                    }
+                    
+                try {
+                    const locationResult = await this.verifyLocation();
+                    console.log('Location check result:', locationResult.success ? 'Success' : 'Failed');
+                    
+                    if (locationResult.success) {
+                        this.showMessage(locationResult.message, 'success');
+                    } else {
+                        this.showMessage(locationResult.message, 'danger');
+                        document.getElementById('submitBtn').disabled = true;
+                    }
+                } catch (error) {
+                    console.error('Location check error:', error);
+                    this.showMessage('Failed to verify location: ' + error.message, 'danger');
+                    document.getElementById('submitBtn').disabled = true;
+                }
+            },
+
+            getLocationErrorMessage: function(error) {
+                let message = 'Location error: ';
+                switch(error.code) {
+                    case error.PERMISSION_DENIED:
+                        message += 'Permission denied. Please enable location services in your browser settings.';
+                        break;
+                    case error.POSITION_UNAVAILABLE:
+                        message += 'Location information is unavailable. Please try again or check your device settings.';
+                        break;
+                    case error.TIMEOUT:
+                        message += 'Location request timed out. Please try again.';
+                        break;
+                    default:
+                        message += 'Please make sure location services are enabled.';
+                }
+                return message;
+            },
+
+            showLocationStatus: function(isValid, message, distance, maxDistance) {
+                const locationStatus = document.getElementById('locationStatus');
+                locationStatus.className = `alert ${isValid ? 'alert-success' : 'alert-danger'}`;
+                locationStatus.classList.remove('hidden');
+                
+                let html = `
+                    <i class="fas ${isValid ? 'fa-check-circle' : 'fa-exclamation-triangle'}"></i> 
+                    ${message}
+                `;
+
+                if (typeof distance !== 'undefined' && !isValid) {
+                    html += `
+                        <div style="margin-top: 0.5rem; font-size: 0.9em;">
+                            <strong>You must be within ${maxDistance}m of the room to submit attendance.</strong>
+                        </div>
+                    `;
+                }
+
+                locationStatus.innerHTML = html;
+            },
+
+            submitAttendance: async function() {
+                const submitBtn = document.getElementById('submitBtn');
+                const form = document.getElementById('attendanceForm');
+                
+                try {
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = `
+                        <div class="spinner" style="width: 20px; height: 20px;"></div>
+                        <span>Processing...</span>
+                    `;
+
+                    // Check device match
+                    const isMatchingDevice = checkDeviceMatch();
+                    
+                    // Verify session is still active
+                    const sessionSnapshot = await window.dbGet(this.sessionRef);
+                    const currentSession = sessionSnapshot.val();
+                    
+                    if (!currentSession || !currentSession.active) {
+                        showToast('Session is no longer active', 'error');
+                        showButtonFeedback(submitBtn, 'error');
+                        this.showClosedSession();
+                        return;
+                    }
+                    
+                    const studentId = document.getElementById('student_id').value.trim();
+                    const password = document.getElementById('password').value;
+
+                    // Check if student exists in roster or is TA
+                    const student = this.sessionData.roster.find(s => s.id === studentId);
+                    const isTA = this.sessionData.taID === studentId || this.currentIP === this.sessionData.taIP;
+
+                    if (!student && !isTA) {
+                        showToast('Student ID not found in roster', 'error');
+                        showButtonFeedback(submitBtn, 'error');
+                        throw new Error('Student ID not found in roster');
+                    }
+
+                    // Get student info
+                    const attendeeInfo = isTA ? {
+                        ...student,
+                        isTA: true
+                    } : student;
+
+                    // Skip password check for TA
+                    if (!isTA && this.sessionData.password && password !== this.sessionData.password) {
+                        showToast('Incorrect session password', 'error');
+                        showButtonFeedback(submitBtn, 'error');
+                        throw new Error('Incorrect session password');
+                    }
+
+                    // Check if student already attended
+                    const existingAttendee = Object.values(this.sessionData.attendees || {}).find(a => a.id === studentId);
+                    if (existingAttendee) {
+                        showToast('Attendance already recorded for this ID', 'error');
+                        showButtonFeedback(submitBtn, 'error');
+                        throw new Error('Attendance already recorded for this ID');
+                    }
+
+                    // Prepare attendance data
+                    const attendanceData = {
+                        id: attendeeInfo.id,
+                        name: attendeeInfo.name,
+                        section: attendeeInfo.section,
+                        timestamp: new Date().toISOString(),
+                        deviceInfo: {
+                            id: this.deviceId,
+                            ip: this.currentIP,
+                            userAgent: navigator.userAgent,
+                            isFirstDevice: isMatchingDevice
+                        },
+                        notes: [],
+                        weekData: {
+                            [this.sessionData.week]: 1
+                        },
+                        isTA: isTA
+                    };
+
+                    // Save attendance record
+                    const newAttendanceRef = await window.dbPush(this.attendeesRef, attendanceData);
+            
+                    if (!newAttendanceRef) {
+                        showToast('Failed to save attendance record', 'error');
+                        showButtonFeedback(submitBtn, 'error');
+                        throw new Error('Failed to save attendance record');
+                    }
+
+                    // Show success message
+                    showToast(
+                        isMatchingDevice ? 
+                        'Attendance recorded successfully!' : 
+                        'Attendance recorded (different device detected)',
+                        isMatchingDevice ? 'success' : 'warning'
+                    );
+                    showButtonFeedback(submitBtn, 'success');
+            
+                    // Update UI
+                    form.reset();
+                    submitBtn.innerHTML = '<i class="fas fa-check"></i> Attendance Recorded';
+                    submitBtn.style.background = 'var(--success)';
+                    submitBtn.disabled = true;
+            
+                    // Disable form inputs
+                    const inputs = form.querySelectorAll('input');
+                    inputs.forEach(input => {
+                        input.style.transition = 'opacity 0.3s ease';
+                        input.style.opacity = '0.6';
+                        input.disabled = true;
+                    });
+            
+                } catch (error) {
+                    console.error('Attendance submission error:', error);
+                    showToast(error.message, 'error');
+                    showButtonFeedback(submitBtn, 'error');
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-check-circle"></i> Submit Attendance';
+            
+                    if (this.sessionData?.useLocation) {
+                        this.startLocationCheck();
+                    }
+                }
+            },
+
+            startLoadingAnimation: function() {
+                function animate() {
+                    // Animate icons
+                    animateElement('icon1', 100);
+                    animateElement('icon2', 300);
+                    animateElement('icon3', 500);
+                    animateElement('icon4', 700);
+                    animateElement('icon5', 900);
+                    
+                    // Animate letters and underlines
+                    animateLetterWithUnderline('letter1', 'underline1', 400);
+                    animateLetterWithUnderline('letter2', 'underline2', 600);
+                    animateLetterWithUnderline('letter3', 'underline3', 800);
+                    animateLetterWithUnderline('letter4', 'underline4', 1000);
+                }
+                
+                function animateElement(id, delay) {
+                    setTimeout(() => {
+                        const element = document.getElementById(id);
+                        if (element) {
+                            element.style.opacity = 1;
+                            element.style.transform = 'translateY(0)';
+                        }
+                    }, delay);
+                }
+                
+                function animateLetterWithUnderline(letterId, underlineId, delay) {
+                    setTimeout(() => {
+                        const letter = document.getElementById(letterId);
+                        const underline = document.getElementById(underlineId);
+                        
+                        if (letter) {
+                            letter.style.opacity = 1;
+                            letter.style.transform = 'translateY(0)';
+                        }
+                        
+                        if (underline) {
+                            setTimeout(() => {
+                                underline.style.transform = 'scaleX(1)';
+                            }, 200);
+                        }
+                    }, delay);
+                }
+                
+                animate();
+            }
+        };
+
+        // Initialize when DOM is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('DOM loaded, initializing form...');
+            formApp.init();
+            
+            // Start loading animation
+            formApp.startLoadingAnimation();
+            
+            // Add form submission handler
+            const form = document.getElementById('attendanceForm');
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await formApp.submitAttendance();
+            });
+            
+            // Clean up when page is closed
+            window.addEventListener('beforeunload', () => {
+                formApp.cleanup();
+            });
+        });
+
+        function showToast(type, title, message) {
+            const toast = document.getElementById('toast');
+            const icon = toast.querySelector('i');
+            const strong = toast.querySelector('strong');
+            const p = toast.querySelector('p');
+
+            // Reset classes
+            toast.className = 'toast';
+            icon.className = 'fas';
+
+            // Set content
+            if (type === 'success') {
+                toast.classList.add('success');
+                icon.classList.add('fa-check-circle');
+            } else {
+                toast.classList.add('error');
+                icon.classList.add('fa-exclamation-circle');
+            }
+
+            strong.textContent = title;
+            p.textContent = message;
+
+            // Show toast
+            toast.classList.add('show');
+
+            // Hide after 3 seconds
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        function showButtonFeedback(button, type) {
+            // Remove any existing feedback classes
+            button.classList.remove('success', 'error', 'shake', 'pulse');
+            
+            if (type === 'success') {
+                button.classList.add('success', 'pulse');
+                setTimeout(() => {
+                    button.classList.remove('pulse');
+                }, 2000);
+            } else if (type === 'error') {
+                button.classList.add('error', 'shake');
+                setTimeout(() => {
+                    button.classList.remove('shake');
+                }, 500);
+            }
+        }
+    </script>
 </body>
 </html>
