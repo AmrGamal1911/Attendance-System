@@ -3,15 +3,67 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Set class location for attendance tracking">
     <title>Set Class Location | EELU</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
+        import { getDatabase, ref, set } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBObz0uvQdLKkCGF7Txb_EPw686FzTmAes",
+            authDomain: "eelu-attendance.firebaseapp.com",
+            databaseURL: "https://eelu-attendance-default-rtdb.firebaseio.com",
+            projectId: "eelu-attendance",
+            storageBucket: "eelu-attendance.appspot.com",
+            messagingSenderId: "5132239076",
+            appId: "1:5132239076:web:8a3ea3f78d1ca106596cf1",
+            measurementId: "G-D2WNX8RGRL"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+
+        window.sendLocationToFirebase = async function(location, sessionId) {
+            try {
+                const locationRef = ref(database, `temp-locations/${sessionId}`);
+                await set(locationRef, {
+                    lat: location.lat,
+                    lng: location.lng,
+                    accuracy: location.accuracy,
+                    timestamp: new Date().toISOString()
+                });
+                return true;
+            } catch (error) {
+                console.error('Error saving location:', error);
+                return false;
+            }
+        };
+    </script>
     
     <style>
         :root {
-            --primary: #667eea;
+            --primary: #4f46e5;
+            --primary-dark: #4338ca;
+            --secondary: #7c3aed;
             --success: #10b981;
             --danger: #ef4444;
-            --border-radius: 12px;
+            --warning: #f59e0b;
+            --info: #3b82f6;
+            --light-bg: #f8fafc;
+            --dark: #1f2937;
+            --gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            --gradient-light: linear-gradient(135deg, rgba(79, 70, 229, 0.1) 0%, rgba(124, 58, 237, 0.1) 100%);
+            --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            --border-radius: 16px;
+            --border-radius-lg: 20px;
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            --font-primary: 'Poppins', system-ui, -apple-system, sans-serif;
+            --font-secondary: 'Inter', system-ui, -apple-system, sans-serif;
         }
         
         * {
@@ -21,54 +73,142 @@
         }
         
         body {
-            font-family: 'Inter', sans-serif;
+            font-family: var(--font-secondary);
+            background: var(--light-bg);
+            color: var(--dark);
             min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
-            padding: 1rem;
-            background: #f8fafc;
+            padding: 1.5rem;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(79, 70, 229, 0.05) 0%, rgba(124, 58, 237, 0.05) 90%),
+                linear-gradient(to bottom right, rgba(79, 70, 229, 0.02) 0%, rgba(124, 58, 237, 0.02) 100%);
+            line-height: 1.5;
         }
         
         .container {
-            max-width: 500px;
+            max-width: 550px;
             width: 100%;
             text-align: center;
+            padding: 2.5rem;
+            background: white;
+            border-radius: var(--border-radius-lg);
+            box-shadow: var(--shadow-lg);
+            position: relative;
+            overflow: hidden;
+            animation: fadeScale 0.6s ease-out;
+            border: 1px solid rgba(255, 255, 255, 0.2);
         }
         
+        .container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--gradient);
+            animation: shimmer 2s infinite linear;
+            background-size: 1000px 100%;
+        }
+
         h1 {
+            font-family: var(--font-primary);
             margin-bottom: 2rem;
             color: var(--primary);
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 0.75rem;
+            font-size: clamp(1.5rem, 5vw, 2rem);
+            font-weight: 600;
+            letter-spacing: -0.02em;
+        }
+
+        h1 i {
+            font-size: 1.8rem;
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: float 3s ease-in-out infinite;
         }
         
         .btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--gradient);
             color: white;
             border: none;
-            padding: 1rem 2rem;
+            padding: 1rem 1.5rem;
             border-radius: var(--border-radius);
             font-size: 1rem;
+            font-weight: 600;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 0.75rem;
-            margin: 0 auto;
-            transition: transform 0.2s;
+            transition: var(--transition);
+            width: 100%;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn:focus-visible {
+            outline: 3px solid rgba(79, 70, 229, 0.5);
+            outline-offset: 2px;
+        }
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transform: translateX(-100%);
+            transition: transform 0.5s ease;
         }
         
         .btn:hover {
             transform: translateY(-2px);
+            box-shadow: var(--shadow);
+        }
+
+        .btn:hover::before {
+            transform: translateX(100%);
+        }
+        
+        .btn:disabled {
+            background: #d1d5db;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn i {
+            font-size: 1.2rem;
+            transition: transform 0.3s ease;
+        }
+
+        .btn:hover i {
+            transform: rotate(15deg);
         }
         
         .alert {
-            padding: 1rem;
+            padding: 1.25rem;
             border-radius: var(--border-radius);
-            margin-bottom: 1rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            animation: slideIn 0.3s ease-out;
+            font-weight: 500;
+        }
+
+        .alert i {
+            font-size: 1.25rem;
+            flex-shrink: 0;
         }
         
         .alert-success {
@@ -82,108 +222,514 @@
             color: #b91c1c;
             border: 1px solid rgba(239, 68, 68, 0.2);
         }
-        
+
         .alert-info {
             background: rgba(59, 130, 246, 0.1);
-            color: #1d4ed8;
+            color: #1e40af;
             border: 1px solid rgba(59, 130, 246, 0.2);
         }
-        
-        .hidden {
-            display: none;
+
+        .location-section {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            animation: slideIn 0.5s ease-out;
+        }
+
+        .location-indicator {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto;
+            background: var(--gradient-light);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: pulse 2s infinite;
+        }
+
+        .location-indicator i {
+            font-size: 2rem;
+            color: var(--primary);
+            animation: float 3s ease-in-out infinite;
+        }
+
+        .status-container {
+            margin-top: 1rem;
+            position: relative;
         }
 
         .spinner {
-            border: 3px solid rgba(102, 126, 234, 0.2);
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(79, 70, 229, 0.1);
             border-top: 3px solid var(--primary);
             border-radius: 50%;
-            width: 24px;
-            height: 24px;
             animation: spin 1s linear infinite;
-            margin: 1rem auto;
+            margin: 1.5rem auto;
+        }
+
+        .form-section {
+            background: var(--gradient-light);
+            padding: 2rem;
+            border-radius: var(--border-radius);
+            border: 1px solid rgba(79, 70, 229, 0.1);
+            animation: slideIn 0.5s ease-out;
+        }
+
+        .form-section.hidden {
             display: none;
         }
-        
+
+        .form-group {
+            margin-bottom: 1.5rem;
+            text-align: left;
+        }
+
+        .form-group label {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+            font-weight: 500;
+            color: var(--primary);
+            font-size: 1.1rem;
+        }
+
+        .form-group label i {
+            color: var(--primary);
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 1rem 1.25rem;
+            border: 2px solid rgba(79, 70, 229, 0.1);
+            border-radius: var(--border-radius);
+            font-size: 1rem;
+            transition: var(--transition);
+            background: white;
+        }
+
+        .form-control:hover {
+            border-color: var(--primary-dark);
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
+        }
+
+        @keyframes fadeScale {
+            from {
+                opacity: 0;
+                transform: scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.4); }
+            70% { box-shadow: 0 0 0 20px rgba(79, 70, 229, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); }
+        }
+
+        @keyframes float {
+            0% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+            100% { transform: translateY(0); }
+        }
+
+        @keyframes shimmer {
+            0% { background-position: -1000px 0; }
+            100% { background-position: 1000px 0; }
+        }
+
+        @keyframes locationPulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.7; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        @media (max-width: 640px) {
+            .container {
+                padding: 1.75rem;
+                margin: 1rem;
+            }
+
+            h1 {
+                font-size: 1.5rem;
+            }
+
+            .btn {
+                padding: 0.875rem 1.25rem;
+            }
+
+            .form-section {
+                padding: 1.5rem;
+            }
+
+            .location-indicator {
+                width: 60px;
+                height: 60px;
+            }
+
+            .location-indicator i {
+                font-size: 1.5rem;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
+        }
+
+        .location-icon {
+            font-size: 2rem;
+            color: var(--primary);
+            margin-bottom: 1rem;
+            animation: locationPulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes locationPulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.7; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .location-status {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+        }
+
+        .location-status i {
+            color: var(--primary);
+            animation: locationPulse 1.5s ease-in-out infinite;
+        }
+
+        .location-status.success i {
+            color: var(--success);
+        }
+
+        .location-status.error i {
+            color: var(--danger);
+        }
+
+        .fas.fa-location-crosshairs {
+            animation: locationPulse 1.5s ease-in-out infinite;
+            color: var(--primary);
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1><i class="fas fa-map-marker-alt"></i> Set Class Location</h1>
+    <div class="container" role="main">
+        <h1><i class="fas fa-map-marker-alt" aria-hidden="true"></i> Set Class Location</h1>
+        <div id="message" class="alert" role="alert" aria-live="polite"></div>
         
-        <div id="message" class="alert hidden"></div>
-        
-        <div id="spinner" class="spinner"></div>
-        
-        <button id="getLocationBtn" class="btn" onclick="getLocation()">
-            <i class="fas fa-location-arrow"></i> Get Current Location
-        </button>
+        <div class="location-section">
+            <div class="location-indicator" role="presentation">
+                <i class="fas fa-location-crosshairs" aria-hidden="true"></i>
+            </div>
+            
+            <button id="getLocationBtn" class="btn" aria-label="Get current location">
+                <i class="fas fa-compass" aria-hidden="true"></i> Get Current Location
+            </button>
+            
+            <div id="locationStatus" class="status-container" role="status" aria-live="polite">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle" aria-hidden="true"></i>
+                    <span>Waiting for location...</span>
+                </div>
+            </div>
+            
+            <div id="locationNameForm" class="form-section hidden">
+                <div class="form-group">
+                    <label for="locationName">
+                        <i class="fas fa-tag" aria-hidden="true"></i>
+                        Location Name
+                    </label>
+                    <input 
+                        type="text" 
+                        id="locationName" 
+                        class="form-control" 
+                        placeholder="e.g., Room 101" 
+                        required
+                        aria-required="true"
+                        aria-label="Enter location name"
+                    >
+                </div>
+                <button 
+                    onclick="saveLocation()" 
+                    class="btn btn-success"
+                    aria-label="Save location"
+                >
+                    <i class="fas fa-check-circle" aria-hidden="true"></i> Save Location
+                </button>
+            </div>
+        </div>
     </div>
 
+    <!-- Professional UI Sound Effects -->
+    <audio id="tapSound" src="https://cdn.jsdelivr.net/gh/snd-lib/snd-lib@v1.2.3/dist/sounds/tap.mp3" preload="auto"></audio>
+    <audio id="successSound" src="https://cdn.jsdelivr.net/gh/snd-lib/snd-lib@v1.2.3/dist/sounds/celebration.mp3" preload="auto"></audio>
+    <audio id="errorSound" src="https://cdn.jsdelivr.net/gh/snd-lib/snd-lib@v1.2.3/dist/sounds/caution.mp3" preload="auto"></audio>
+    <audio id="toggleSound" src="https://cdn.jsdelivr.net/gh/snd-lib/snd-lib@v1.2.3/dist/sounds/toggle.mp3" preload="auto"></audio>
+    <audio id="notificationSound" src="https://cdn.jsdelivr.net/gh/snd-lib/snd-lib@v1.2.3/dist/sounds/notification.mp3" preload="auto"></audio>
+    <audio id="alertSound" src="https://cdn.jsdelivr.net/gh/snd-lib/snd-lib@v1.2.3/dist/sounds/alert.mp3" preload="auto"></audio>
+
     <script>
-        function showMessage(type, text) {
-            const messageDiv = document.getElementById('message');
-            messageDiv.className = `alert alert-${type}`;
-            messageDiv.textContent = text;
-            messageDiv.classList.remove('hidden');
+        // Add sound effects with enhanced error handling
+        const sounds = {
+            tap: document.getElementById('tapSound'),
+            success: document.getElementById('successSound'),
+            error: document.getElementById('errorSound'),
+            toggle: document.getElementById('toggleSound'),
+            notification: document.getElementById('notificationSound'),
+            alert: document.getElementById('alertSound')
+        };
+
+        let lastPlayTime = 0;
+        const DEBOUNCE_TIME = 100; // ms
+
+        function playSound(type) {
+            try {
+                const sound = sounds[type];
+                if (sound && sound.play && typeof sound.play === 'function') {
+                    sound.currentTime = 0;
+                    const playPromise = sound.play();
+                    if (playPromise !== undefined) {
+                        playPromise.catch(error => {
+                            console.warn('Sound playback failed:', error);
+                            // Silently fail - don't affect user experience
+                        });
+                    }
+                }
+            } catch (error) {
+                console.warn('Sound playback failed:', error);
+                // Silently fail - don't affect user experience
+            }
         }
 
         function showSpinner(show) {
-            document.getElementById('spinner').style.display = show ? 'block' : 'none';
-            document.getElementById('getLocationBtn').style.display = show ? 'none' : 'flex';
+            const spinner = document.getElementById('spinner');
+            const getLocationBtn = document.getElementById('getLocationBtn');
+            
+            // Add null checks
+            if (spinner) {
+                spinner.style.display = show ? 'block' : 'none';
+            }
+            
+            if (getLocationBtn) {
+                getLocationBtn.disabled = show;
+            }
         }
 
-        function getLocation() {
+        // Enhanced showMessage function with sound
+        function showMessage(text, type) {
+            const messageDiv = document.getElementById('message');
+            const icon = type === 'success' ? 'check-circle' : 
+                        type === 'danger' ? 'exclamation-circle' : 
+                        'info-circle';
+            
+            messageDiv.innerHTML = `
+                <i class="fas fa-${icon}"></i>
+                <span>${text}</span>
+            `;
+            messageDiv.className = `alert alert-${type}`;
+            messageDiv.style.display = 'flex';
+            
+            playSound(type === 'success' ? 'success' : 
+                     type === 'danger' ? 'error' : 'click');
+        }
+
+        // Original initialization code
+        const urlParams = new URLSearchParams(window.location.search);
+        const sessionId = urlParams.get('session');
+
+        if (!sessionId) {
+            showMessage('Invalid session. Please scan the QR code again.', 'danger');
+            document.getElementById('getLocationBtn').disabled = true;
+        }
+
+        document.getElementById('getLocationBtn').addEventListener('click', async function() {
             if (!navigator.geolocation) {
-                showMessage('danger', 'Geolocation is not supported by your browser');
+                showMessage('Geolocation is not supported by your browser.', 'danger');
                 return;
             }
 
             showSpinner(true);
-            showMessage('info', 'Getting your location...');
+            showMessage('Getting your location...', 'info');
 
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    const { latitude: lat, longitude: lng } = position.coords;
+            try {
+                const position = await new Promise((resolve, reject) => {
+                    const options = {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 0
+                    };
                     
-                    // Send coordinates back to parent window
-                    if (window.opener) {
-                        window.opener.postMessage({ lat, lng }, '*');
-                        showMessage('success', 'Location set successfully! You can close this window.');
-                        showSpinner(false);
-                        document.getElementById('getLocationBtn').style.display = 'none';
-                    } else {
-                        showMessage('danger', 'Error: Could not communicate with main window');
-                        showSpinner(false);
-                    }
-                },
-                (error) => {
-                    let message = 'Error getting location: ';
-                    switch (error.code) {
-                        case error.PERMISSION_DENIED:
-                            message += 'Permission denied';
-                            break;
-                        case error.POSITION_UNAVAILABLE:
-                            message += 'Position unavailable';
-                            break;
-                        case error.TIMEOUT:
-                            message += 'Request timed out';
-                            break;
-                        default:
-                            message += 'Unknown error';
-                    }
-                    showMessage('danger', message);
-                    showSpinner(false);
-                },
-                {
-                    enableHighAccuracy: true,
-                    timeout: 10000,
-                    maximumAge: 0
+                    navigator.geolocation.getCurrentPosition(resolve, reject, options);
+                });
+
+                const locationData = {
+                    lat: position.coords.latitude,
+                    lng: position.coords.longitude,
+                    accuracy: Math.min(position.coords.accuracy, 20), // Cap accuracy at 20m
+                    timestamp: new Date().toISOString()
+                };
+
+                // Send location to Firebase
+                const success = await window.sendLocationToFirebase(locationData, sessionId);
+                
+                if (success) {
+                    showMessage('Location set successfully!', 'success');
+                    document.getElementById('locationStatus').innerHTML = `
+                        <div class="alert alert-success">
+                            <i class="fas fa-check-circle"></i> Location set successfully!
+                        </div>
+                    `;
+                    // Force close the page using multiple methods
+                    setTimeout(() => {
+                        try {
+                            window.close();
+                            // If window.close() doesn't work, try other methods
+                            window.location.href = 'about:blank';
+                            history.back();
+                            window.location.replace('about:blank');
+                        } catch (e) {
+                            console.error('Error closing window:', e);
+                        }
+                    }, 1000);
+                } else {
+                    throw new Error('Failed to save location');
                 }
-            );
+
+            } catch (error) {
+                let errorMessage = 'Error getting location: ';
+                
+                switch(error.code) {
+                    case 1:
+                        errorMessage += 'Permission denied. Please allow location access.';
+                        break;
+                    case 2:
+                        errorMessage += 'Position unavailable. Please try again.';
+                        break;
+                    case 3:
+                        errorMessage += 'Timeout. Please try again.';
+                        break;
+                    default:
+                        errorMessage += error.message || 'Unknown error occurred.';
+                }
+                
+                showMessage(errorMessage, 'danger');
+            } finally {
+                showSpinner(false);
+            }
+        });
+
+        function saveLocation() {
+            const locationName = document.getElementById('locationName').value.trim();
+            
+            if (!locationName) {
+                showMessage('Please enter a location name', 'danger');
+                return;
+            }
+            
+            // Clean up Firebase reference before closing
+            const locationRef = ref(window.database, `temp-locations/${sessionId}`);
+            set(locationRef, null)
+                .then(() => {
+                    // Clear any existing listeners
+                    window.dbOff(locationRef);
+                    window.close();
+                })
+                .catch((error) => {
+                    console.error('Error cleaning up:', error);
+                    window.close();
+                });
+        }
+
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            if (sessionId) {
+                const locationRef = ref(window.database, `temp-locations/${sessionId}`);
+                set(locationRef, null).catch(console.error);
+            }
+        });
+
+        // Add sound effects to buttons
+        document.querySelectorAll('.btn').forEach(btn => {
+            btn.addEventListener('mouseenter', () => {
+                if (!btn.disabled) {
+                    playSound('tap');
+                }
+            });
+            btn.addEventListener('click', () => {
+                if (!btn.disabled) {
+                    playSound('toggle');
+                }
+            });
+        });
+
+        // Add sound effects to form submissions
+        document.querySelectorAll('form').forEach(form => {
+            form.addEventListener('submit', () => {
+                playSound('success');
+            });
+        });
+
+        // Add sound effects to inputs
+        document.querySelectorAll('input').forEach(input => {
+            input.addEventListener('focus', () => {
+                playSound('tap');
+            });
+        });
+
+        function showLocationStatus(isValid, message, distance, maxDistance) {
+            const locationStatus = document.getElementById('locationStatus');
+            locationStatus.className = `alert ${isValid ? 'alert-success' : 'alert-danger'}`;
+            locationStatus.classList.remove('hidden');
+            
+            let html = `
+                <i class="fas fa-location-crosshairs location-icon"></i> 
+                ${message}
+            `;
+
+            if (typeof distance !== 'undefined' && !isValid) {
+                html += `
+                    <div style="margin-top: 0.5rem; font-size: 0.9em;">
+                        <strong>You must be within ${maxDistance}m of the room to submit attendance.</strong>
+                    </div>
+                `;
+            }
+
+            locationStatus.innerHTML = html;
         }
     </script>
 </body>
